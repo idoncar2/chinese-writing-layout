@@ -1,0 +1,19 @@
+node_modules/
+coverage/
+
+# Local editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local settings and secrets
+.env
+.env.*
+data.json
+.deploy.local.json
+
+# Temporary release packages
+release/
+*.zip
+*.log
