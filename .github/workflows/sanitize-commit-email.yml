@@ -1,0 +1,61 @@
+name: Sanitize commit email
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/sanitize-commit-email.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  sanitize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Rewrite non-private commit emails
+        shell: bash
+        env:
+          PRIVATE_NAME: idoncar2
+          PRIVATE_EMAIL: 238469771+idoncar2@users.noreply.github.com
+        run: |
+          git filter-branch -f --env-filter '
+            case "$GIT_AUTHOR_EMAIL" in
+              *@users.noreply.github.com|noreply@github.com|noreply@anthropic.com) ;;
+              *) export GIT_AUTHOR_NAME="$PRIVATE_NAME"; export GIT_AUTHOR_EMAIL="$PRIVATE_EMAIL" ;;
+            esac
+            case "$GIT_COMMITTER_EMAIL" in
+              *@users.noreply.github.com|noreply@github.com|noreply@anthropic.com) ;;
+              *) export GIT_COMMITTER_NAME="$PRIVATE_NAME"; export GIT_COMMITTER_EMAIL="$PRIVATE_EMAIL" ;;
+            esac
+          ' --tag-name-filter cat -- --branches --tags
+
+          git for-each-ref --format='delete %(refname)' refs/original | git update-ref --stdin || true
+
+          remaining="$(git log --branches --tags --format='%ae%n%ce' | grep -Ev '(@users\.noreply\.github\.com$|^noreply@github\.com$|^noreply@anthropic\.com$)' | wc -l | tr -d ' ')"
+          if [ "$remaining" != "0" ]; then
+            echo "Non-private commit email entries remain: $remaining"
+            exit 1
+          fi
+
+      - name: Force-push sanitized history
+        shell: bash
+        run: |
+          git push --force origin refs/heads/main:refs/heads/main
+          git push --force origin --tags
+
+      - name: Remove one-time sanitizer
+        shell: bash
+        run: |
+          git config user.name "idoncar2"
+          git config user.email "238469771+idoncar2@users.noreply.github.com"
+          git rm .github/workflows/sanitize-commit-email.yml
+          git commit -m "Remove one-time history sanitizer"
+          git push origin HEAD:main
