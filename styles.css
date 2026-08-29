@@ -1277,8 +1277,15 @@ body.cw-focus-mode
   margin-block-end: 22px;
 }
 
-.cw-settings-page .cw-settings-header h2 {
+.cw-settings-page .cw-settings-header .setting-item-heading {
   margin: 0;
+  padding: 0;
+  border-block-end: none;
+  background: transparent;
+}
+
+.cw-settings-page .cw-settings-header .setting-item-heading .setting-item-name {
+  padding: 0;
   color: var(--text-normal);
   font-size: var(--font-ui-larger);
   font-weight: var(--font-semibold);
@@ -1308,8 +1315,15 @@ body.cw-focus-mode
   margin-block-end: 9px;
 }
 
-.cw-settings-page .cw-settings-section-header h3 {
+.cw-settings-page .cw-settings-section-header .setting-item-heading {
   margin: 0;
+  padding: 0;
+  border-block-end: none;
+  background: transparent;
+}
+
+.cw-settings-page .cw-settings-section-header .setting-item-heading .setting-item-name {
+  padding: 0;
   color: var(--text-normal);
   font-size: var(--font-ui-medium);
   font-weight: var(--font-semibold);
@@ -1340,9 +1354,16 @@ body.cw-focus-mode
   margin-block-start: 12px;
 }
 
-.cw-settings-page .cw-settings-group-title {
+.cw-settings-page .cw-settings-group .cw-settings-group-title.setting-item-heading {
   margin: 0;
   padding: 12px 14px 7px;
+  border-block-start: none;
+  border-block-end: none;
+  background: transparent;
+}
+
+.cw-settings-page .cw-settings-group .cw-settings-group-title.setting-item-heading .setting-item-name {
+  padding: 0;
   color: var(--text-normal);
   font-size: var(--font-ui-small);
   font-weight: var(--font-semibold);

@@ -3,7 +3,40 @@ import {
   analyzeChineseText,
   countCreativeWords,
   isProseLine,
+  visibleMarkdownText,
 } from "../src/text-analysis";
+
+describe("visibleMarkdownText", () => {
+  it("strips single italic/emphasis markers", () => {
+    expect(visibleMarkdownText("_text_")).toBe("text");
+    expect(visibleMarkdownText("*text*")).toBe("text");
+  });
+
+  it("preserves underscores inside words", () => {
+    expect(visibleMarkdownText("a_b")).toBe("a_b");
+  });
+
+  it("strips common Markdown bold and italic", () => {
+    expect(visibleMarkdownText("**bold**")).toBe("bold");
+    expect(visibleMarkdownText("__bold__")).toBe("bold");
+    expect(visibleMarkdownText("*bold*")).toBe("bold");
+    expect(visibleMarkdownText("_italic_")).toBe("italic");
+    expect(visibleMarkdownText("***bold italic***")).toBe("bold italic");
+    expect(visibleMarkdownText("**bold _nested_ text**")).toBe(
+      "bold nested text",
+    );
+  });
+
+  it("strips Markdown markers from Chinese prose", () => {
+    expect(visibleMarkdownText("**你好，世界**")).toBe("你好，世界");
+    expect(visibleMarkdownText("_中文_")).toBe("中文");
+    expect(visibleMarkdownText("**加粗**和*斜体*")).toBe("加粗和斜体");
+  });
+
+  it("keeps emphasis results stable for word counting", () => {
+    expect(countCreativeWords("a_b")).toBe(2);
+  });
+});
 
 describe("analyzeChineseText", () => {
   it("finds half-width punctuation beside Chinese text", () => {

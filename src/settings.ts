@@ -99,7 +99,7 @@ export class ChineseWritingSettingTab extends PluginSettingTab {
     containerEl.addClass("cw-settings-page");
 
     const header = containerEl.createDiv({ cls: "cw-settings-header" });
-    header.createEl("h2", { text: "中文写作排版" });
+    new Setting(header).setName("中文写作排版").setHeading();
     header.createEl("p", {
       text: "“写作模式”只为当前笔记开启写作显示，字号、行距与缩进通过右侧“版式微调”调整；“一键排版”才会按所选规则整理 Markdown 原文，并可立即撤销。",
       cls: "setting-item-description",
@@ -496,7 +496,7 @@ export class ChineseWritingSettingTab extends PluginSettingTab {
   ): HTMLElement {
     const section = container.createDiv({ cls: "cw-settings-section" });
     const header = section.createDiv({ cls: "cw-settings-section-header" });
-    header.createEl("h3", { text: title });
+    new Setting(header).setName(title).setHeading();
     header.createEl("p", {
       text: description,
       cls: "cw-settings-section-description",
@@ -506,7 +506,9 @@ export class ChineseWritingSettingTab extends PluginSettingTab {
 
   private createSettingsGroup(container: HTMLElement, title?: string): HTMLElement {
     const group = container.createDiv({ cls: "cw-settings-group" });
-    if (title) group.createEl("h4", { text: title, cls: "cw-settings-group-title" });
+    if (title) {
+      new Setting(group).setName(title).setHeading().settingEl.addClass("cw-settings-group-title");
+    }
     return group;
   }
 

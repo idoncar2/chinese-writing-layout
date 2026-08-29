@@ -225,7 +225,7 @@ function stripYamlFrontMatter(markdown: string): string {
   return markdown;
 }
 
-function visibleMarkdownText(markdown: string): string {
+export function visibleMarkdownText(markdown: string): string {
   let text = removeFencedCode(markdown);
   text = text.replace(/<!--[\s\S]*?-->/gu, "\n");
   text = text.replace(/%%[\s\S]*?%%/gu, "\n");
@@ -244,8 +244,24 @@ function visibleMarkdownText(markdown: string): string {
   text = text.replace(/\\([\\`*_{}\[\]()#+\-.!>])/gu, "$1");
   text = text.replace(/(^|\n)[ \t]{0,3}(?:#{1,6}[ \t]+|>[ \t]?|[-+*][ \t]+|\d{1,9}[.)][ \t]+)/gu, "$1");
   text = text.replace(/(?:\*\*|__|~~)/gu, "");
-  text = text.replace(/(?<!\w)[*_](?=\S)|(?<=\S)[*_](?!\w)/gu, "");
+  text = removeEmphasisMarkers(text);
   return text.replace(/[\[\]]/gu, "");
+}
+
+// 移除单个强调符号 * 或 _，保留单词内部的 _（如 a_b）。
+// 等价于 /(?<!\w)[*_](?=\S)|(?<=\S)[*_](?!\w)/gu，但不使用 lookbehind（iOS 16.4 之前不支持）。
+function removeEmphasisMarkers(text: string): string {
+  return text.replace(/[*_]/gu, (marker, offset, source) => {
+    const before = source[offset - 1];
+    const after = source[offset + 1];
+    const isWordChar = (ch: string | undefined): boolean =>
+      ch !== undefined && /[A-Za-z0-9_]/u.test(ch);
+    const isNonSpace = (ch: string | undefined): boolean =>
+      ch !== undefined && !/\s/u.test(ch);
+    const isOpening = !isWordChar(before) && isNonSpace(after);
+    const isClosing = isNonSpace(before) && !isWordChar(after);
+    return isOpening || isClosing ? "" : marker;
+  });
 }
 
 function removeFencedCode(markdown: string): string {

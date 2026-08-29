@@ -544,7 +544,6 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       this.clearViewClasses(leaf);
     }
-    this.app.workspace.detachLeavesOfType(WRITING_PANEL_VIEW_TYPE);
   }
 
   async loadSettings(): Promise<void> {
