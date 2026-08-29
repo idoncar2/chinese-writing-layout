@@ -1,327 +1,516 @@
 import { App, Modal, Setting, setIcon } from "obsidian";
-import {
-  createFontFamilyStack,
-  extractGenericFontFamily,
-  extractFontFamilyNames,
-  fontNameToCssFamily,
-  getInstalledFontFamilies,
-  type GenericFontFamily,
-} from "./system-fonts";
+import { findAvailableQuickFont, QUICK_FONT_OPTIONS } from "./quick-fonts";
+import { fontNameToCssFamily } from "./system-fonts";
+import type { FontSelection, UserFont } from "./types";
 
-export const FONT_PRESET_OPTIONS = [
-  {
-    id: "serif",
-    label: "宋体",
-    fontFamily: '"思源宋体", "Source Han Serif SC", "Noto Serif CJK SC", "宋体", serif',
-  },
-  {
-    id: "sans",
-    label: "黑体",
-    fontFamily: '"思源黑体", "Source Han Sans SC", "Noto Sans CJK SC", "Microsoft YaHei", "微软雅黑", sans-serif',
-  },
-  {
-    id: "kai",
-    label: "楷体",
-    fontFamily: '"Kaiti SC", "STKaiti", "KaiTi", "楷体", serif',
-  },
-  {
-    id: "fangsong",
-    label: "仿宋",
-    fontFamily: '"FangSong", "STFangsong", "仿宋", serif',
-  },
-] as const;
+export interface BuiltinFontOption {
+  id: string;
+  name: string;
+  previewFamily: string;
+}
 
-export function normalizeFontFamily(value: unknown, fallback: string): string {
-  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+/** Reserved for a future verified resource; no bundled font files are shipped in this issue. */
+export const BUILTIN_FONT_OPTIONS: readonly BuiltinFontOption[] = [];
+
+export function getFontSelectionDisplayName(
+  selection: FontSelection,
+  userFonts: readonly UserFont[] = [],
+  builtinFonts: readonly BuiltinFontOption[] = BUILTIN_FONT_OPTIONS,
+): string {
+  if (selection.source === "obsidian") return "默认";
+  if (selection.source === "inherit") return "跟随正文";
+  if (selection.source === "builtin") {
+    return builtinFonts.find((font) => font.id === selection.id)?.name ?? selection.id;
+  }
+  if (selection.source === "user") {
+    return userFonts.find((font) => font.id === selection.id)?.name ?? selection.id;
+  }
+  return selection.id;
+}
+
+export function getFontSelectionPreviewFamily(
+  selection: FontSelection,
+  userFonts: readonly UserFont[] = [],
+  builtinFonts: readonly BuiltinFontOption[] = BUILTIN_FONT_OPTIONS,
+): string {
+  if (selection.source === "obsidian") return "var(--font-text-theme)";
+  if (selection.source === "inherit") return "inherit";
+  if (selection.source === "builtin") {
+    return builtinFonts.find((font) => font.id === selection.id)?.previewFamily ?? "serif";
+  }
+  if (selection.source === "user") {
+    return fontNameToCssFamily(selection.id);
+  }
+  return fontNameToCssFamily(selection.id);
+}
+
+export interface FontPickerUserFontActions {
+  getUserFonts?: () => readonly UserFont[];
+  getAvailableUserFontIds?: () => ReadonlySet<string>;
+  getFontUsageCount?: (id: string) => number;
+  importFont?: (file: File) => Promise<UserFont | null>;
+  renameFont?: (id: string, name: string) => Promise<boolean>;
+  deleteFont?: (id: string) => Promise<boolean>;
+  onUserFontsChanged?: () => void;
+}
+
+class UserFontNameModal extends Modal {
+  constructor(
+    app: App,
+    private font: UserFont,
+    private onSubmit: (name: string) => Promise<boolean>,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle("重命名字体");
+    let value = this.font.name;
+    let saveButton: HTMLButtonElement | undefined;
+    const setting = new Setting(this.contentEl)
+      .setName("显示名称")
+      .setDesc("只修改插件内显示名称，不会改动字体文件。")
+      .addText((text) => {
+        text
+          .setValue(value)
+          .setPlaceholder("例如：霞鹜文楷")
+          .onChange((next) => {
+            value = next;
+            if (saveButton) saveButton.disabled = value.trim().length === 0;
+          });
+        window.setTimeout(() => text.inputEl.focus(), 0);
+      });
+    setting.addButton((button) => {
+      saveButton = button.buttonEl;
+      return button
+        .setButtonText("保存")
+        .setDisabled(value.trim().length === 0)
+        .onClick(async () => {
+          const name = value.trim();
+          if (!name || !saveButton) return;
+          saveButton.disabled = true;
+          if (await this.onSubmit(name)) this.close();
+          else saveButton.disabled = false;
+        });
+    });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+class UserFontDeleteModal extends Modal {
+  constructor(
+    app: App,
+    private font: UserFont,
+    private usageCount: number,
+    private onConfirm: () => Promise<boolean>,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle("删除字体");
+    this.contentEl.createEl("p", {
+      text: this.usageCount > 0
+        ? `该字体正在被 ${this.usageCount} 个版式位置使用，删除后相关位置将恢复为默认跟随设置。`
+        : "删除后将无法在版式中选择该字体。",
+    });
+    this.contentEl.createEl("p", {
+      text: `字体：${this.font.name}`,
+      cls: "setting-item-description",
+    });
+    new Setting(this.contentEl)
+      .addButton((button) => button
+        .setButtonText("取消")
+        .onClick(() => this.close()))
+      .addButton((button) => button
+        .setButtonText("确认删除")
+        .setWarning()
+        .onClick(async () => {
+          button.setDisabled(true);
+          if (await this.onConfirm()) this.close();
+          else button.setDisabled(false);
+        }));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
 }
 
 export class FontPickerModal extends Modal {
-  private availableFonts: string[] = [];
-  private selectedFonts: string[];
-  private genericFallback: GenericFontFamily;
-  private searchValue = "";
-  private listEl?: HTMLElement;
-  private selectedListEl?: HTMLElement;
-  private statusEl?: HTMLElement;
-  private fallbackSelectEl?: HTMLSelectElement;
-  private opened = false;
-  private draggedFontIndex: number | null = null;
+  private selectedSelection: FontSelection;
+  private sourceListEl?: HTMLElement;
+  private userFonts: readonly UserFont[];
 
   constructor(
     app: App,
     private roleLabel: string,
-    currentFontFamily: string,
-    private onSubmit: (fontFamily: string) => void,
+    currentSelection: FontSelection,
+    userFonts: readonly UserFont[],
+    private onSubmit: (selection: FontSelection) => void,
+    private actions: FontPickerUserFontActions = {},
   ) {
     super(app);
-    this.selectedFonts = extractFontFamilyNames(currentFontFamily);
-    this.genericFallback = extractGenericFontFamily(
-      currentFontFamily,
-      roleLabel === "标题" ? "sans-serif" : "serif",
-    );
+    this.selectedSelection = { ...currentSelection };
+    this.userFonts = userFonts;
   }
 
   onOpen(): void {
-    this.opened = true;
     this.modalEl.addClass("cw-font-picker-modal");
     this.setTitle(`选择${this.roleLabel}字体`);
-
     this.contentEl.createEl("p", {
-      text: "按从上到下的顺序尝试字体。第一种字体不可用时，会继续使用下一种；可拖动排序，也可用箭头按钮调整。",
+      text: "选择后立即应用。插件只保存当前字体引用，不会扫描电脑上的全部字体。",
       cls: "cw-font-picker-intro",
     });
 
-    const selectedHeader = this.contentEl.createDiv({ cls: "cw-font-section-header" });
-    selectedHeader.createEl("h3", { text: "字体读取顺序" });
-    selectedHeader.createSpan({ text: "第一项优先", cls: "cw-font-section-note" });
-    this.selectedListEl = this.contentEl.createDiv({
-      cls: "cw-font-selected-list",
-      attr: { "aria-label": `${this.roleLabel}字体读取顺序` },
-    });
-    this.renderSelectedFonts();
-
-    const presets = this.contentEl.createDiv({ cls: "cw-font-presets" });
-    presets.createSpan({ text: "快速组合", cls: "cw-font-presets-label" });
-    for (const option of FONT_PRESET_OPTIONS) {
-      const button = presets.createEl("button", {
-        text: option.label,
-        attr: { type: "button", title: `使用${option.label}字体组合` },
-      });
-      button.addEventListener("click", () => {
-        this.selectedFonts = extractFontFamilyNames(option.fontFamily);
-        this.genericFallback = extractGenericFontFamily(option.fontFamily);
-        if (this.fallbackSelectEl) this.fallbackSelectEl.value = this.genericFallback;
-        this.renderSelectedFonts();
-        this.renderFontList();
-      });
-    }
-
-    new Setting(this.contentEl)
-      .setName("最后后备字体")
-      .setDesc("前面的字体都不可用时使用。")
-      .setClass("cw-font-fallback-setting")
-      .addDropdown((dropdown) => {
-        this.fallbackSelectEl = dropdown.selectEl;
-        return dropdown
-          .addOption("serif", "衬线字体（宋体类）")
-          .addOption("sans-serif", "无衬线字体（黑体类）")
-          .addOption("monospace", "等宽字体")
-          .setValue(this.genericFallback)
-          .onChange((value) => {
-          this.genericFallback = value as GenericFontFamily;
-          });
-      });
-
-    const availableHeader = this.contentEl.createDiv({ cls: "cw-font-section-header" });
-    availableHeader.createEl("h3", { text: "Windows 已安装字体" });
-    availableHeader.createSpan({ text: "点击加入上方列表", cls: "cw-font-section-note" });
-
-    const search = this.contentEl.createEl("input", {
-      type: "search",
-      placeholder: "搜索已安装字体…",
-      cls: "cw-font-search",
-      attr: { "aria-label": `搜索${this.roleLabel}字体` },
-    });
-    search.addEventListener("input", () => {
-      this.searchValue = search.value;
-      this.renderFontList();
-    });
-    window.setTimeout(() => search.focus(), 0);
-
-    const meta = this.contentEl.createDiv({ cls: "cw-font-list-meta" });
-    this.statusEl = meta.createSpan({ text: "正在扫描 Windows 已安装字体…" });
-    const refresh = meta.createEl("button", {
-      text: "重新扫描",
-      attr: { type: "button" },
-    });
-    refresh.addEventListener("click", () => void this.loadFonts(true));
-
-    this.listEl = this.contentEl.createDiv({ cls: "cw-font-list" });
-    this.renderFontList();
-
-    const advanced = this.contentEl.createEl("details", { cls: "cw-font-advanced" });
-    advanced.createEl("summary", { text: "手动添加与字体安装说明" });
-    advanced.createEl("p", {
-      text: "下载 .ttf 或 .otf 后先在 Windows 中安装并重启 Obsidian，再重新扫描。未被自动识别的字体也可以在下方按名称加入。",
-    });
-    let manualValue = "";
-    let manualInput: HTMLInputElement | null = null;
-    const setting = new Setting(advanced)
-      .setName("字体名称")
-      .setDesc("例如：霞鹜文楷")
-      .addText((text) => {
-        manualInput = text.inputEl;
-        text.setPlaceholder("输入一个字体名称").onChange((value) => { manualValue = value; });
-      });
-    setting.addButton((button) =>
-      button.setButtonText("加入列表").onClick(() => {
-        const value = manualValue.trim();
-        if (!value) return;
-        this.addSelectedFont(value);
-        manualValue = "";
-        if (manualInput) manualInput.value = "";
-      }),
-    );
+    this.sourceListEl = this.contentEl.createDiv({ cls: "cw-font-source-list" });
+    this.renderSourceGroups();
+    this.renderFontHelp();
 
     const footer = this.contentEl.createDiv({ cls: "cw-font-picker-footer" });
-    const cancel = footer.createEl("button", { text: "取消", attr: { type: "button" } });
-    cancel.addEventListener("click", () => this.close());
-    const apply = footer.createEl("button", {
-      text: "应用字体列表",
-      cls: "mod-cta",
+    const done = footer.createEl("button", {
+      text: "完成",
       attr: { type: "button" },
     });
-    apply.addEventListener("click", () => {
-      this.onSubmit(createFontFamilyStack(this.selectedFonts, this.genericFallback));
-      this.close();
+    done.addEventListener("click", () => this.close());
+  }
+
+  private renderSourceGroups(): void {
+    if (!this.sourceListEl) return;
+    this.sourceListEl.empty();
+
+    if (this.allowsBodyInheritance()) {
+      this.renderChoiceSection(
+        this.sourceListEl,
+        "跟随正文",
+        "引用、粗体和斜体会使用正文字体。",
+        [{ source: "inherit", id: "body" }],
+      );
+    }
+
+    this.renderChoiceSection(
+      this.sourceListEl,
+      "跟随 Obsidian",
+      "交给当前主题和 Obsidian 的字体设置。",
+      [{ source: "obsidian", id: this.roleLabel === "标题" ? "heading" : "text" }],
+    );
+    this.renderQuickFonts(this.sourceListEl);
+    this.renderUserFonts(this.sourceListEl);
+    this.renderSystemFontInput(this.sourceListEl);
+  }
+
+  private renderChoiceSection(
+    root: HTMLElement,
+    title: string,
+    description: string,
+    choices: readonly FontSelection[],
+  ): void {
+    const section = root.createDiv({ cls: "cw-font-source-section" });
+    const header = section.createDiv({ cls: "cw-font-source-header" });
+    header.createEl("h3", { text: title });
+    header.createSpan({ text: description, cls: "cw-font-source-description" });
+    const list = section.createDiv({
+      cls: "cw-font-choice-list",
+      attr: {
+        role: "radiogroup",
+        "aria-label": `${this.roleLabel}${title}`,
+      },
+    });
+    for (const choice of choices) this.renderFontChoice(list, choice);
+  }
+
+  private renderQuickFonts(root: HTMLElement): void {
+    const section = root.createDiv({ cls: "cw-font-source-section" });
+    const header = section.createDiv({ cls: "cw-font-source-header" });
+    header.createEl("h3", { text: "快捷字体" });
+    header.createSpan({
+      text: "使用当前设备已安装的常见字体",
+      cls: "cw-font-source-description",
+    });
+    const list = section.createDiv({
+      cls: "cw-font-choice-list cw-font-quick-list",
+      attr: { role: "radiogroup", "aria-label": `${this.roleLabel}快捷字体` },
+    });
+    for (const option of QUICK_FONT_OPTIONS) {
+      const availableFont = findAvailableQuickFont(option);
+      const selection: FontSelection = {
+        source: "system",
+        id: availableFont ?? option.candidates[0]!,
+      };
+      this.renderFontChoice(
+        list,
+        selection,
+        availableFont
+          ? "当前设备可用"
+          : "当前设备不可用；可导入字体",
+        !availableFont,
+        option.label,
+      );
+    }
+  }
+
+  private renderUserFonts(root: HTMLElement): void {
+    const section = root.createDiv({ cls: "cw-font-source-section" });
+    const header = section.createDiv({ cls: "cw-font-source-header cw-font-user-header" });
+    header.createEl("h3", { text: "我的字体" });
+    header.createSpan({ text: "保存在本插件目录中", cls: "cw-font-source-description" });
+    const fileInput = section.createEl("input", {
+      type: "file",
+      cls: "cw-font-file-input",
+      attr: {
+        accept: ".ttf,.otf,.woff,.woff2",
+        "aria-label": "选择字体文件",
+      },
+    });
+    fileInput.hidden = true;
+    const importButton = header.createEl("button", {
+      text: "+ 导入字体",
+      cls: "cw-font-import-button",
+      attr: {
+        type: "button",
+        title: "导入 .ttf、.otf、.woff 或 .woff2 字体文件",
+      },
+    });
+    importButton.disabled = !this.actions.importFont;
+    importButton.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files?.[0];
+      fileInput.value = "";
+      if (file) void this.importUserFont(file, importButton);
     });
 
-    void this.loadFonts(false);
-  }
-
-  private async loadFonts(refresh: boolean): Promise<void> {
-    this.statusEl?.setText(refresh ? "正在重新扫描…" : "正在扫描 Windows 已安装字体…");
-    const installed = await getInstalledFontFamilies(refresh);
-    if (!this.opened) return;
-    this.availableFonts = [...new Set(installed)].filter(Boolean).sort((left, right) =>
-      left.localeCompare(right, "zh-CN", { numeric: true, sensitivity: "base" }),
-    );
-    this.statusEl?.setText(
-      installed.length > 0
-        ? `已读取 ${installed.length.toLocaleString()} 种已安装字体`
-        : "未能自动读取系统字体，仍可使用内置字体或手动输入",
-    );
-    this.renderFontList();
-  }
-
-  private renderFontList(): void {
-    if (!this.listEl) return;
-    this.listEl.empty();
-    const query = this.searchValue.trim().toLocaleLowerCase("zh-CN");
-    const filtered = query
-      ? this.availableFonts.filter((font) => font.toLocaleLowerCase("zh-CN").includes(query))
-      : this.availableFonts;
-    if (filtered.length === 0) {
-      this.listEl.createDiv({
-        text: this.availableFonts.length === 0
-          ? "正在读取 Windows 字体；如果一直为空，可以重新扫描或手动添加。"
-          : "没有匹配字体。可以缩短关键词，或在下方手动添加。",
-        cls: "cw-font-empty",
+    const list = section.createDiv({
+      cls: "cw-font-choice-list",
+      attr: { role: "radiogroup", "aria-label": `${this.roleLabel}我的字体` },
+    });
+    if (this.userFonts.length === 0) {
+      list.createDiv({
+        text: "还没有导入字体，点击右上角“+ 导入字体”。",
+        cls: "cw-font-source-empty",
       });
       return;
     }
+    for (const font of this.userFonts) this.renderUserFontChoice(list, font);
+    if (this.selectedSelection.source === "user"
+      && !this.userFonts.some((font) => font.id === this.selectedSelection.id)) {
+      this.renderFontChoice(
+        list,
+        { source: "user", id: this.selectedSelection.id },
+        "字体暂不可用，仍保留原引用。",
+        true,
+      );
+    }
+  }
 
-    const selected = new Set(this.selectedFonts.map((font) => font.toLocaleLowerCase("zh-CN")));
-    for (const font of filtered) {
-      const active = selected.has(font.toLocaleLowerCase("zh-CN"));
-      const button = this.listEl.createEl("button", {
-        cls: `cw-font-option${active ? " is-active" : ""}`,
+  private renderUserFontChoice(list: HTMLElement, font: UserFont): void {
+    const unavailable = !this.isUserFontAvailable(font.id);
+    const row = list.createDiv({ cls: "cw-font-user-row" });
+    this.renderFontChoice(
+      row,
+      { source: "user", id: font.id },
+      unavailable
+        ? `原文件：${font.originalFileName}；字体暂不可用，仍保留原引用。`
+        : `原文件：${font.originalFileName}`,
+      unavailable,
+      font.name,
+    );
+    const actions = row.createDiv({
+      cls: "cw-font-user-actions",
+      attr: { "aria-label": `${font.name}管理操作` },
+    });
+    if (this.actions.renameFont) {
+      const rename = actions.createEl("button", {
         attr: {
           type: "button",
-          "aria-pressed": String(active),
-          title: active ? `${font} 已在字体列表中` : `将 ${font} 加入字体列表`,
+          title: `重命名${font.name}`,
+          "aria-label": `重命名${font.name}`,
         },
       });
-      const label = button.createSpan({ text: font });
-      label.style.fontFamily = fontNameToCssFamily(font);
-      if (active) button.createSpan({ text: "已添加", cls: "cw-font-option-state" });
-      button.disabled = active;
-      button.addEventListener("click", () => {
-        this.addSelectedFont(font);
+      setIcon(rename, "pencil");
+      rename.addEventListener("click", () => this.openRenameFont(font));
+    }
+    if (this.actions.deleteFont) {
+      const remove = actions.createEl("button", {
+        attr: {
+          type: "button",
+          title: `删除${font.name}`,
+          "aria-label": `删除${font.name}`,
+        },
       });
+      setIcon(remove, "trash-2");
+      remove.addEventListener("click", () => this.openDeleteFont(font));
     }
   }
 
-  private renderSelectedFonts(): void {
-    if (!this.selectedListEl) return;
-    this.selectedListEl.empty();
-    if (this.selectedFonts.length === 0) {
-      this.selectedListEl.createDiv({
-        text: "尚未选择具体字体，将直接使用最后后备字体。",
-        cls: "cw-font-selected-empty",
+  private renderSystemFontInput(root: HTMLElement): void {
+    const section = root.createDiv({ cls: "cw-font-source-section cw-font-system-section" });
+    const header = section.createDiv({ cls: "cw-font-source-header" });
+    header.createEl("h3", { text: "系统字体" });
+    header.createSpan({ text: "高级选项", cls: "cw-font-source-description" });
+    let inputEl: HTMLInputElement | undefined;
+    const setting = new Setting(section)
+      .setClass("cw-font-system-setting")
+      .setName("使用系统字体名称")
+      .setDesc("仅在当前设备已安装该字体时有效。")
+      .addText((text) => {
+        inputEl = text.inputEl;
+        text
+          .setPlaceholder("例如：PingFang SC")
+          .setValue(this.selectedSelection.source === "system" ? this.selectedSelection.id : "");
       });
-      return;
-    }
+    const applySystemFont = (): void => {
+      const value = inputEl?.value.trim() ?? "";
+      if (!value) {
+        inputEl?.focus();
+        inputEl?.setAttribute("aria-invalid", "true");
+        return;
+      }
+      inputEl?.removeAttribute("aria-invalid");
+      this.selectFont({ source: "system", id: value });
+    };
+    inputEl?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      applySystemFont();
+    });
+    setting.addButton((button) => button
+      .setButtonText("应用")
+      .onClick(applySystemFont));
+  }
 
-    this.selectedFonts.forEach((font, index) => {
-      const row = this.selectedListEl!.createDiv({
-        cls: "cw-font-selected-row",
-      });
-      row.createSpan({ text: `${index + 1}`, cls: "cw-font-selected-order" });
-      const label = row.createSpan({ text: font, cls: "cw-font-selected-name" });
-      label.style.fontFamily = fontNameToCssFamily(font);
-      const actions = row.createDiv({ cls: "cw-font-selected-actions" });
-      const up = actions.createEl("button", {
-        attr: { type: "button", title: "上移", "aria-label": `上移 ${font}` },
-      });
-      setIcon(up, "chevron-up");
-      up.disabled = index === 0;
-      up.addEventListener("click", () => this.moveSelectedFont(index, index - 1));
-      const down = actions.createEl("button", {
-        attr: { type: "button", title: "下移", "aria-label": `下移 ${font}` },
-      });
-      setIcon(down, "chevron-down");
-      down.disabled = index === this.selectedFonts.length - 1;
-      down.addEventListener("click", () => this.moveSelectedFont(index, index + 1));
-      const remove = actions.createEl("button", {
-        attr: { type: "button", title: "移除", "aria-label": `移除 ${font}` },
-      });
-      setIcon(remove, "x");
-      remove.addEventListener("click", () => {
-        this.selectedFonts.splice(index, 1);
-        this.renderSelectedFonts();
-        this.renderFontList();
-      });
-      const grip = actions.createSpan({
-        cls: "cw-font-selected-grip",
-        attr: { draggable: "true", title: "拖动调整顺序", "aria-hidden": "true" },
-      });
-      setIcon(grip, "grip-vertical");
+  private renderFontChoice(
+    container: HTMLElement,
+    selection: FontSelection,
+    note?: string,
+    disabled = false,
+    displayNameOverride?: string,
+  ): void {
+    const selected = this.areSameSelection(selection, this.selectedSelection);
+    const label = displayNameOverride
+      ?? getFontSelectionDisplayName(selection, this.userFonts);
+    const button = container.createEl("button", {
+      cls: `cw-font-choice${selected ? " is-selected" : ""}`,
+      attr: {
+        type: "button",
+        role: "radio",
+        "aria-checked": String(selected),
+        "aria-label": `${label}${selected ? "，已选" : ""}`,
+        title: selected ? `${label}（当前选择）` : `选择${label}`,
+      },
+    });
+    button.disabled = disabled;
+    const marker = button.createSpan({
+      cls: "cw-font-choice-marker",
+      attr: { "aria-hidden": "true" },
+    });
+    if (selected) setIcon(marker, "check");
+    const content = button.createDiv({ cls: "cw-font-choice-content" });
+    content.createDiv({ text: label, cls: "cw-font-choice-name" });
+    const preview = content.createDiv({
+      text: "中文写作预览 Aa",
+      cls: "cw-font-choice-preview",
+    });
+    preview.style.fontFamily = getFontSelectionPreviewFamily(selection, this.userFonts);
+    if (note) content.createDiv({ text: note, cls: "cw-font-choice-note" });
+    button.addEventListener("click", () => this.selectFont(selection));
+  }
 
-      grip.addEventListener("dragstart", (event) => {
-        this.draggedFontIndex = index;
-        row.addClass("is-dragging");
-        event.dataTransfer?.setData("text/plain", `${index}`);
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-      });
-      row.addEventListener("dragover", (event) => {
-        event.preventDefault();
-        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-      });
-      row.addEventListener("drop", (event) => {
-        event.preventDefault();
-        if (this.draggedFontIndex !== null) this.moveSelectedFont(this.draggedFontIndex, index);
-      });
-      grip.addEventListener("dragend", () => {
-        this.draggedFontIndex = null;
-        row.removeClass("is-dragging");
-      });
+  private renderFontHelp(): void {
+    const help = this.contentEl.createEl("details", { cls: "cw-font-help" });
+    help.createEl("summary", { text: "如何添加字体？" });
+    help.createEl("p", {
+      text: "查看已安装字体名称：在系统字体设置或字体列表中找到字体族名称。",
+    });
+    help.createEl("p", {
+      text: "导入字体文件：点击“+ 导入字体”，选择 .ttf、.otf、.woff 或 .woff2 文件。",
+    });
+    help.createEl("p", {
+      text: "快捷字体会随设备变化；如果需要跨设备保持一致，请在当前设备导入自己的字体文件。导入后会立即选中并应用。",
     });
   }
 
-  private addSelectedFont(font: string): void {
-    const normalized = font.trim().replace(/^(?:["'])(.*)(?:["'])$/, "$1");
-    if (!normalized) return;
-    const exists = this.selectedFonts.some(
-      (item) => item.localeCompare(normalized, "zh-CN", { sensitivity: "base" }) === 0,
-    );
-    if (!exists) this.selectedFonts.push(normalized);
-    this.renderSelectedFonts();
-    this.renderFontList();
+  private async importUserFont(file: File, button: HTMLButtonElement): Promise<void> {
+    if (!this.actions.importFont) return;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    try {
+      const imported = await this.actions.importFont(file);
+      if (imported) {
+        this.refreshUserFontSnapshot();
+        this.selectFont({ source: "user", id: imported.id });
+      }
+    } finally {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
   }
 
-  private moveSelectedFont(from: number, to: number): void {
-    if (from === to || from < 0 || to < 0 || to >= this.selectedFonts.length) return;
-    const [font] = this.selectedFonts.splice(from, 1);
-    if (!font) return;
-    this.selectedFonts.splice(to, 0, font);
-    this.draggedFontIndex = null;
-    this.renderSelectedFonts();
-    this.renderFontList();
+  private openRenameFont(font: UserFont): void {
+    if (!this.actions.renameFont) return;
+    new UserFontNameModal(this.app, font, async (name) => {
+      const renamed = await this.actions.renameFont!(font.id, name);
+      if (!renamed) return false;
+      this.refreshUserFontSnapshot();
+      this.renderSourceGroups();
+      return true;
+    }).open();
+  }
+
+  private openDeleteFont(font: UserFont): void {
+    if (!this.actions.deleteFont) return;
+    const usageCount = this.actions.getFontUsageCount?.(font.id) ?? 0;
+    new UserFontDeleteModal(this.app, font, usageCount, async () => {
+      const deleted = await this.actions.deleteFont!(font.id);
+      if (!deleted) return false;
+      if (this.selectedSelection.source === "user" && this.selectedSelection.id === font.id) {
+        this.selectedSelection = this.getFallbackSelection();
+      }
+      this.refreshUserFontSnapshot();
+      this.renderSourceGroups();
+      return true;
+    }).open();
+  }
+
+  private refreshUserFontSnapshot(): void {
+    this.userFonts = this.actions.getUserFonts?.() ?? this.userFonts;
+    this.actions.onUserFontsChanged?.();
+  }
+
+  private isUserFontAvailable(id: string): boolean {
+    const available = this.actions.getAvailableUserFontIds?.();
+    return available ? available.has(id) : true;
+  }
+
+  private getFallbackSelection(): FontSelection {
+    if (this.allowsBodyInheritance()) return { source: "inherit", id: "body" };
+    return {
+      source: "obsidian",
+      id: this.roleLabel === "标题" ? "heading" : "text",
+    };
+  }
+
+  private selectFont(selection: FontSelection): void {
+    this.selectedSelection = { ...selection };
+    this.applyCurrentSelection();
+    this.renderSourceGroups();
+  }
+
+  private applyCurrentSelection(): void {
+    this.onSubmit({ ...this.selectedSelection });
+  }
+
+  private allowsBodyInheritance(): boolean {
+    return this.roleLabel !== "正文" && this.roleLabel !== "标题";
+  }
+
+  private areSameSelection(left: FontSelection, right: FontSelection): boolean {
+    return left.source === right.source && left.id === right.id;
   }
 
   onClose(): void {
-    this.opened = false;
     this.contentEl.empty();
   }
 }

@@ -1,0 +1,202 @@
+中文写作排版｜小白安装指南
+
+这是一份给第一次从 GitHub 手动安装 Obsidian 插件的用户看的说明。
+不需要会编程，也不需要使用命令行。
+
+----------------------------------------
+一、先下载哪个文件？
+----------------------------------------
+
+1. 打开插件的 GitHub 页面。
+2. 找到右侧或页面中的 Releases（发布版本）。
+3. 进入最新版本，在 Assets（附件）里下载：
+
+   chinese-writing-layout-版本号.zip
+
+例如：
+   chinese-writing-layout-1.0.0.zip
+
+注意：
+- 优先下载名字里带 chinese-writing-layout 的 ZIP。
+- 不要下载 GitHub 自动生成的 “Source code (zip)” 或 “Source code (tar.gz)”。
+  那是源代码，不是给普通用户直接安装的插件包。
+
+----------------------------------------
+二、解压 ZIP
+----------------------------------------
+
+下载完成后，右键 ZIP → “全部解压”。
+
+解压后应该看到一个文件夹：
+
+chinese-writing-layout
+
+里面至少有这三个文件：
+
+main.js
+manifest.json
+styles.css
+
+安装指南保留在 GitHub 仓库与 Release 附件中，不要求放进插件文件夹。
+
+----------------------------------------
+三、找到你的 Obsidian 仓库文件夹
+----------------------------------------
+
+“仓库”就是你平时存放 Obsidian 笔记的那个总文件夹。
+你的 .md 笔记文件都在里面。
+
+如果你知道仓库在哪，直接用文件资源管理器打开它即可。
+
+如果你不知道：
+- 在 Obsidian 左侧文件列表里找到任意一篇笔记；
+- 右键它，选择类似“在系统资源管理器中显示 / Reveal in system explorer”的选项；
+- 打开的文件夹就是这篇笔记所在的位置，再返回上级目录，找到整个 Obsidian 仓库。
+
+----------------------------------------
+四、找到 .obsidian/plugins 文件夹
+----------------------------------------
+
+在你的仓库根目录里，有一个名为：
+
+.obsidian
+
+的文件夹。
+
+进入它，再进入：
+
+plugins
+
+完整位置类似：
+
+你的仓库/.obsidian/plugins/
+
+如果没有 plugins 文件夹，可以自己新建一个，名字必须是：
+
+plugins
+
+【Windows 看不到 .obsidian 怎么办？】
+
+.obsidian 是隐藏文件夹。
+打开 Windows 文件资源管理器后：
+
+查看 → 显示 → 隐藏的项目
+
+勾选以后就能看到 .obsidian。
+
+也可以直接点击文件资源管理器顶部的地址栏，在仓库路径后面输入：
+
+\.obsidian\plugins
+
+然后按 Enter。
+
+----------------------------------------
+五、把插件放进去
+----------------------------------------
+
+把刚才解压出来的整个：
+
+chinese-writing-layout
+
+文件夹复制到：
+
+你的仓库/.obsidian/plugins/
+
+最终结构必须是：
+
+你的仓库/
+└─ .obsidian/
+   └─ plugins/
+      └─ chinese-writing-layout/
+         ├─ main.js
+         ├─ manifest.json
+         └─ styles.css
+
+最重要的是：main.js、manifest.json、styles.css 必须直接位于 chinese-writing-layout 文件夹里。
+
+错误示例：
+
+plugins/chinese-writing-layout/chinese-writing-layout/main.js
+
+如果出现两层同名文件夹，请把里面那一层 chinese-writing-layout 移出来。
+
+----------------------------------------
+六、回到 Obsidian 启用插件
+----------------------------------------
+
+1. 完全退出并重新打开 Obsidian。
+2. 打开：设置 → 第三方插件 / Community plugins。
+3. 如果 Obsidian 还没有允许第三方插件，请先按提示开启第三方插件。
+4. 在已安装插件列表中找到：
+
+   Chinese Writing Layout（中文写作排版）
+
+5. 打开它右侧的开关。
+
+安装完成。
+
+----------------------------------------
+七、怎么确认安装成功？
+----------------------------------------
+
+打开任意一篇 Markdown 笔记。
+
+左侧工具栏应该可以看到书本按钮。
+点击后会按顺序切换：
+
+关闭 → 写作模式（简洁版）→ 写作模式（专业版）→ 关闭
+
+进入专业版后，右侧会出现“写作工坊”。
+
+----------------------------------------
+八、如果插件没有出现
+----------------------------------------
+
+按下面顺序检查：
+
+1. 是否已经重新启动 Obsidian。
+2. 设置 → 第三方插件里，是否已经允许使用第三方插件。
+3. 文件夹名字是否正好是：
+
+   chinese-writing-layout
+
+4. 这个文件夹里是否直接存在：
+
+   main.js
+   manifest.json
+   styles.css
+
+5. 是否误下载了 GitHub 的 “Source code (zip)” 。
+   如果是，请回到 Releases 的 Assets，重新下载 chinese-writing-layout-版本号.zip。
+
+6. 是否多套了一层文件夹。
+
+正确：
+plugins/chinese-writing-layout/main.js
+
+错误：
+plugins/chinese-writing-layout/chinese-writing-layout/main.js
+
+----------------------------------------
+九、以后更新版本怎么办？
+----------------------------------------
+
+以后如果发布了新版本：
+
+1. 从 Releases 下载新的 ZIP。
+2. 解压。
+3. 用新版中的 main.js、manifest.json、styles.css 替换原来的三个文件。
+4. 重新启动 Obsidian。
+
+正常更新不会改动你的 Markdown 笔记。
+
+----------------------------------------
+十、仍然不明白也没关系
+----------------------------------------
+
+手动安装 GitHub 插件第一次确实不直观。
+只要记住最关键的一件事：
+
+把包含 main.js、manifest.json、styles.css 的 chinese-writing-layout 文件夹，放进你的 Obsidian 仓库的 .obsidian/plugins/ 里面。
+
+然后重启 Obsidian，在“设置 → 第三方插件”里启用“Chinese Writing Layout（中文写作排版）”即可。

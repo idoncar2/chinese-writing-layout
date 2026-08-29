@@ -1,4 +1,7 @@
-import { isProseLine } from "./text-analysis";
+import {
+  getMarkdownLineContexts,
+  transformMarkdownText,
+} from "./markdown-protection";
 import type {
   BuiltinFormattingPresetId,
   FormattingRuleKey,
@@ -13,6 +16,11 @@ export interface FormattingRuleDefinition {
   key: FormattingRuleKey;
   label: string;
   description: string;
+}
+
+export interface FormattingRuleGroup {
+  label: string;
+  keys: FormattingRuleKey[];
 }
 
 export const FORMATTING_RULES: FormattingRuleDefinition[] = [
@@ -35,6 +43,43 @@ export const FORMATTING_RULES: FormattingRuleDefinition[] = [
   { key: "convertCurlyQuotesToCorner", label: "中文弯引号转直角引号", description: "将“”‘’转换为「」『』。" },
   { key: "convertCornerQuotesToCurly", label: "直角引号转中文弯引号", description: "将「」『』转换为“”‘’。" },
   { key: "normalizeEllipsis", label: "省略号规范化", description: "将三个以上连续句点或省略号统一为“……”。" },
+];
+
+export const FORMATTING_RULE_GROUPS: FormattingRuleGroup[] = [
+  {
+    label: "空白",
+    keys: ["trimLeadingWhitespace", "trimTrailingWhitespace", "trimDocumentBlankLines"],
+  },
+  {
+    label: "空行",
+    keys: ["collapseBlankLines", "ensureBlankLineBetweenParagraphs", "removeAllBlankLines"],
+  },
+  {
+    label: "空格",
+    keys: [
+      "collapseRepeatedSpaces",
+      "removeSpacesBetweenChinese",
+      "addSpacesBetweenChineseAndLatin",
+      "removeSpacesBetweenChineseAndLatin",
+      "removeAllSpaces",
+    ],
+  },
+  {
+    label: "段首",
+    keys: ["addManualIndentation", "removeManualIndentation"],
+  },
+  {
+    label: "标点",
+    keys: ["convertHalfwidthPunctuation", "convertFullwidthPunctuation", "normalizeEllipsis"],
+  },
+  {
+    label: "引号",
+    keys: [
+      "normalizeStraightQuotes",
+      "convertCurlyQuotesToCorner",
+      "convertCornerQuotesToCurly",
+    ],
+  },
 ];
 
 export function createDisabledFormattingRules(): FormattingRules {
@@ -83,52 +128,41 @@ const FULL_WIDTH_PUNCTUATION: Record<string, string> = Object.fromEntries(
   Object.entries(HALF_WIDTH_PUNCTUATION).map(([half, full]) => [full, half]),
 );
 
-function getProtectedLines(lines: string[]): boolean[] {
-  const protectedLines = Array.from({ length: lines.length }, () => false);
-  let inFrontmatter = lines[0]?.trim() === "---";
-  let inFence = false;
-  for (let index = 0; index < lines.length; index += 1) {
-    const trimmed = lines[index].trim();
-    if (inFrontmatter) {
-      protectedLines[index] = true;
-      if (index > 0 && trimmed === "---") inFrontmatter = false;
-      continue;
-    }
-    if (/^(```+|~~~+)/.test(trimmed)) {
-      protectedLines[index] = true;
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) protectedLines[index] = true;
-  }
-  return protectedLines;
+function transformEditableLines(
+  lines: string[],
+  transform: (segment: string) => string,
+  protectSyntax: boolean,
+): string[] {
+  return transformMarkdownText(lines.join("\n"), transform, { protectSyntax })
+    .split("\n");
 }
 
-function transformInlineCodeSafe(line: string, transform: (segment: string) => string): string {
-  return line
-    .split(/(`+[^`\n]*`+)/g)
-    .map((segment) => (segment.startsWith("`") ? segment : transform(segment)))
-    .join("");
-}
-
-function transformProseLines(lines: string[], transform: (line: string) => string): string[] {
-  const protectedLines = getProtectedLines(lines);
+function transformParagraphLines(
+  lines: string[],
+  transform: (line: string) => string,
+): string[] {
+  const contexts = getMarkdownLineContexts(lines);
   return lines.map((line, index) =>
-    !protectedLines[index] && isProseLine(line, false) ? transform(line) : line,
+    contexts[index].kind === "paragraph" && !contexts[index].stronglyProtected
+      ? transform(line)
+      : line,
   );
 }
 
-function applyInlineRule(lines: string[], transform: (segment: string) => string): string[] {
-  return transformProseLines(lines, (line) => transformInlineCodeSafe(line, transform));
-}
-
-function applyRule(lines: string[], key: FormattingRuleKey): string[] {
-  const protectedLines = getProtectedLines(lines);
+function applyRule(lines: string[], key: FormattingRuleKey, protectSyntax: boolean): string[] {
+  const contexts = getMarkdownLineContexts(lines);
+  const protectedLines = contexts.map((context) => context.stronglyProtected);
   switch (key) {
     case "trimLeadingWhitespace":
-      return transformProseLines(lines, (line) => line.replace(LEADING_PROSE_WHITESPACE, ""));
+      return transformParagraphLines(lines, (line) => line.replace(LEADING_PROSE_WHITESPACE, ""));
     case "trimTrailingWhitespace":
-      return lines.map((line, index) => protectedLines[index] ? line : line.replace(/[ \t　]+$/u, ""));
+      return lines.map((line, index) => {
+        if (protectedLines[index]) return line;
+        if (protectSyntax && / {2,}$/u.test(line)) {
+          return line.replace(/[ \t　]+$/u, "  ");
+        }
+        return line.replace(/[ \t　]+$/u, "");
+      });
     case "trimDocumentBlankLines": {
       let start = 0;
       let end = lines.length;
@@ -157,33 +191,36 @@ function applyRule(lines: string[], key: FormattingRuleKey): string[] {
         const nextLine = lines[index + 1];
         if (
           nextLine !== undefined && !protectedLines[index] && !protectedLines[index + 1] &&
-          isProseLine(line, false) && isProseLine(nextLine, false)
+          contexts[index].kind === "paragraph" && contexts[index + 1].kind === "paragraph"
         ) spaced.push("");
       }
       return spaced;
     }
     case "collapseRepeatedSpaces":
-      return applyInlineRule(lines, (segment) => segment.replace(/[ \t　]{2,}/gu, " "));
+      return transformEditableLines(lines, (segment) => segment.replace(/[ \t　]{2,}/gu, " "), protectSyntax);
     case "removeSpacesBetweenChinese":
-      return applyInlineRule(lines, (segment) => segment.replace(
+      return transformEditableLines(lines, (segment) => segment.replace(
         new RegExp(`(?<=[${CJK_FULLWIDTH}])[ \\t　]+(?=[${CJK_FULLWIDTH}])`, "gu"), "",
-      ));
+      ), protectSyntax);
     case "addSpacesBetweenChineseAndLatin":
-      return applyInlineRule(lines, (segment) => segment
+      return transformEditableLines(lines, (segment) => segment
         .replace(new RegExp(`(?<=[${HAN}])(?=[A-Za-z0-9])`, "gu"), " ")
-        .replace(new RegExp(`(?<=[A-Za-z0-9])(?=[${HAN}])`, "gu"), " "));
+        .replace(new RegExp(`(?<=[A-Za-z0-9])(?=[${HAN}])`, "gu"), " "), protectSyntax);
     case "removeSpacesBetweenChineseAndLatin":
-      return applyInlineRule(lines, (segment) => segment
+      return transformEditableLines(lines, (segment) => segment
         .replace(new RegExp(`(?<=[${HAN}])[ \\t　]+(?=[A-Za-z0-9])`, "gu"), "")
-        .replace(new RegExp(`(?<=[A-Za-z0-9])[ \\t　]+(?=[${HAN}])`, "gu"), ""));
+        .replace(new RegExp(`(?<=[A-Za-z0-9])[ \\t　]+(?=[${HAN}])`, "gu"), ""), protectSyntax);
     case "removeAllSpaces":
-      return applyInlineRule(lines, (segment) => segment.replace(/[ \t　]+/gu, ""));
+      return transformEditableLines(lines, (segment) => segment.replace(/[ \t　]+/gu, ""), protectSyntax);
     case "addManualIndentation":
-      return transformProseLines(lines, (line) => line.replace(OPTIONAL_LEADING_PROSE_WHITESPACE, "　　"));
+      return transformParagraphLines(
+        lines,
+        (line) => line.replace(OPTIONAL_LEADING_PROSE_WHITESPACE, "　　"),
+      );
     case "removeManualIndentation":
-      return transformProseLines(lines, (line) => line.replace(LEADING_PROSE_WHITESPACE, ""));
+      return transformParagraphLines(lines, (line) => line.replace(LEADING_PROSE_WHITESPACE, ""));
     case "convertHalfwidthPunctuation":
-      return applyInlineRule(lines, (segment) => segment.replace(
+      return transformEditableLines(lines, (segment) => segment.replace(
         /[,.?!:;]/g,
         (character, offset: number, source: string) => {
           const before = source[offset - 1] ?? "";
@@ -191,27 +228,27 @@ function applyRule(lines: string[], key: FormattingRuleKey): string[] {
           return HAN_CHARACTER.test(before) || HAN_CHARACTER.test(after)
             ? HALF_WIDTH_PUNCTUATION[character] : character;
         },
-      ));
+      ), protectSyntax);
     case "convertFullwidthPunctuation":
-      return applyInlineRule(lines, (segment) => segment.replace(
+      return transformEditableLines(lines, (segment) => segment.replace(
         /[，。？！：；]/g, (character) => FULL_WIDTH_PUNCTUATION[character],
-      ));
+      ), protectSyntax);
     case "normalizeStraightQuotes":
-      return applyInlineRule(lines, (segment) => segment
+      return transformEditableLines(lines, (segment) => segment
         .replace(/"([^"\n]+)"/g, "“$1”")
-        .replace(/'([^'\n]+)'/g, "‘$1’"));
+        .replace(/'([^'\n]+)'/g, "‘$1’"), protectSyntax);
     case "convertCurlyQuotesToCorner":
-      return applyInlineRule(lines, (segment) => segment.replace(
+      return transformEditableLines(lines, (segment) => segment.replace(
         /[“”‘’]/g,
         (character) => ({ "“": "「", "”": "」", "‘": "『", "’": "』" })[character] ?? character,
-      ));
+      ), protectSyntax);
     case "convertCornerQuotesToCurly":
-      return applyInlineRule(lines, (segment) => segment.replace(
+      return transformEditableLines(lines, (segment) => segment.replace(
         /[「」『』]/g,
         (character) => ({ "「": "“", "」": "”", "『": "‘", "』": "’" })[character] ?? character,
-      ));
+      ), protectSyntax);
     case "normalizeEllipsis":
-      return applyInlineRule(lines, (segment) => segment.replace(/(?:\.{3,}|。{3,}|…{3,})/g, "……"));
+      return transformEditableLines(lines, (segment) => segment.replace(/(?:\.{3,}|。{3,}|…{3,})/g, "……"), protectSyntax);
   }
 }
 
@@ -230,11 +267,13 @@ export function applyFormattingRules(
   text: string,
   rules: FormattingRules,
   order: readonly FormattingRuleKey[] = DEFAULT_FORMATTING_RULE_ORDER,
+  markdownFormatting?: { protectSyntax?: boolean; mode?: unknown; repair?: unknown },
 ): string {
   const newline = text.includes("\r\n") ? "\r\n" : "\n";
+  const protectSyntax = markdownFormatting?.protectSyntax !== false;
   let lines = text.split(/\r?\n/);
   for (const key of normalizeRuleOrder(order)) {
-    if (rules[key]) lines = applyRule(lines, key);
+    if (rules[key]) lines = applyRule(lines, key, protectSyntax);
   }
   return lines.join(newline);
 }

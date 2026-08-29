@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   applyFormattingRules,
   createDisabledFormattingRules,
+  FORMATTING_RULE_GROUPS,
   FORMATTING_PRESETS,
 } from "../src/formatting";
-import type { FormattingRules } from "../src/types";
+import {
+  DEFAULT_FORMATTING_RULE_ORDER,
+  type FormattingRules,
+} from "../src/types";
 
 const noRules: FormattingRules = createDisabledFormattingRules();
 
@@ -28,7 +32,7 @@ describe("applyFormattingRules", () => {
       removeSpacesBetweenChinese: true,
       removeManualIndentation: true,
     });
-    expect(result).toBe("这是中文，正文。");
+    expect(result).toBe("这是中文，正文。  ");
   });
 
   it("removes copied indentation that Obsidian would render as a code block", () => {
@@ -132,5 +136,43 @@ describe("applyFormattingRules", () => {
       "removeSpacesBetweenChineseAndLatin",
       "addSpacesBetweenChineseAndLatin",
     ])).toBe("中文 English");
+  });
+
+  it("formats visible Markdown bodies without changing protected syntax", () => {
+    const source = "## 标题  内容 [链接 文字](https://example.com/a  b) [[目标  页面|别名 文字]] **粗 体**";
+    const result = applyFormattingRules(source, {
+      ...noRules,
+      removeAllSpaces: true,
+    });
+    expect(result).toBe("## 标题内容[链接文字](https://example.com/a  b)[[目标  页面|别名文字]]**粗体**");
+  });
+
+  it("can opt out of added Markdown syntax protection while retaining strong code protection", () => {
+    const source = "** 中 文 ** [标 签](https://example.com/a  b) `中 文`";
+    const result = applyFormattingRules(source, {
+      ...noRules,
+      removeAllSpaces: true,
+    }, undefined, { protectSyntax: false, mode: "none", repair: {
+      bold: true, italic: true, strikethrough: true, inlineCode: true,
+      markdownLink: true, obsidianLink: true, list: true, blockquote: true, heading: true,
+    }});
+    expect(result).toBe("**中文**[标签](https://example.com/ab)`中 文`");
+  });
+
+  it("preserves hard-break whitespace and structural prefixes", () => {
+    const source = "## 标题  内容\n- [x] 列表  \n> 引用  ";
+    const result = applyFormattingRules(source, {
+      ...noRules,
+      removeAllSpaces: true,
+    });
+    expect(result).toBe("## 标题内容\n- [x] 列表  \n> 引用  ");
+  });
+});
+
+describe("FORMATTING_RULE_GROUPS", () => {
+  it("shows every existing rule exactly once in the compact rule picker", () => {
+    const groupedKeys = FORMATTING_RULE_GROUPS.flatMap((group) => group.keys);
+    expect(groupedKeys).toHaveLength(DEFAULT_FORMATTING_RULE_ORDER.length);
+    expect(new Set(groupedKeys)).toEqual(new Set(DEFAULT_FORMATTING_RULE_ORDER));
   });
 });

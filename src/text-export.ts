@@ -1,9 +1,14 @@
+import { stripInlineMarkdown } from "./markdown-formatting";
+import type { ExportFormat, ExportScope } from "./types";
+
 const FRONTMATTER_PATTERN = /^---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n|$)/;
 
 export interface ExportBlock {
   kind: "paragraph" | "heading" | "blank" | "page-break";
   text: string;
   level?: number;
+  sourceIndex?: number;
+  sourceTitle?: string;
 }
 
 export interface ExportSource {
@@ -11,27 +16,110 @@ export interface ExportSource {
   markdown: string;
 }
 
-function cleanInlineMarkdown(text: string): string {
-  return text
-    .replace(/^[ \t]{0,3}>[ \t]?/, "")
-    .replace(/^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/, "")
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
-    .replace(/\[\[([^\]]+)\]\]/g, "$1")
-    .replace(/(\*\*|__)(.*?)\1/g, "$2")
-    .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, "$1")
-    .replace(/(?<!_)_([^_\n]+)_(?!_)/g, "$1")
-    .replace(/~~(.*?)~~/g, "$1")
-    .replace(/`([^`\n]+)`/g, "$1")
-    .replace(/[ \t]+$/g, "");
+export type ExportContentMode = "plain-text" | "markdown";
+
+export interface ExportContentOptions {
+  format: ExportFormat;
+  scope: ExportScope;
+  includeFileTitles: boolean;
+  stripMarkdown: boolean;
+}
+
+export interface PreparedExportContent {
+  blocks?: ExportBlock[];
+  text: string;
+  contentMode: ExportContentMode;
+  sourceCount: number;
+}
+
+export { stripInlineMarkdown } from "./markdown-formatting";
+
+export function removeFrontmatter(markdown: string): string {
+  return markdown.replace(FRONTMATTER_PATTERN, "");
+}
+
+export function getExportContentMode(
+  format: ExportFormat,
+  stripMarkdown: boolean,
+): ExportContentMode {
+  return format === "md" || !stripMarkdown ? "markdown" : "plain-text";
+}
+
+export function combineMarkdownSources(
+  sources: readonly ExportSource[],
+  includeFileTitles: boolean,
+): string {
+  return sources
+    .map((source) => {
+      const parts: string[] = [];
+      const markdown = removeFrontmatter(source.markdown).trim();
+      if (includeFileTitles) parts.push(`# ${source.title}`);
+      if (markdown) parts.push(markdown);
+      return parts.join("\n\n");
+    })
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
+export function prepareMarkdownExportText(
+  sources: readonly ExportSource[],
+  scope: ExportScope,
+  includeFileTitles: boolean,
+): string {
+  if (scope === "current" && sources.length === 1) {
+    return sources[0]?.markdown ?? "";
+  }
+  return combineMarkdownSources(sources, includeFileTitles);
+}
+
+export function prepareExportContent(
+  sources: readonly ExportSource[],
+  options: ExportContentOptions,
+): PreparedExportContent {
+  if (options.format === "md") {
+    return {
+      text: prepareMarkdownExportText(
+        sources,
+        options.scope,
+        options.scope === "folder" && options.includeFileTitles,
+      ),
+      contentMode: "markdown",
+      sourceCount: sources.length,
+    };
+  }
+
+  const blocks = combineExportSources(
+    sources,
+    options.scope === "folder" && options.includeFileTitles,
+    options.stripMarkdown,
+  );
+  return {
+    blocks,
+    text: exportBlocksToPlainText(blocks),
+    contentMode: getExportContentMode(options.format, options.stripMarkdown),
+    sourceCount: sources.length,
+  };
+}
+
+export interface ExportPreviewText {
+  text: string;
+  truncated: boolean;
+}
+
+export function truncateExportPreview(
+  text: string,
+  limit = 200_000,
+): ExportPreviewText {
+  if (text.length <= limit) return { text, truncated: false };
+  return { text: text.slice(0, limit), truncated: true };
 }
 
 export function markdownToExportBlocks(
   markdown: string,
   stripMarkdown = true,
 ): ExportBlock[] {
-  const source = markdown.replace(FRONTMATTER_PATTERN, "");
+  const source = removeFrontmatter(markdown);
   const blocks: ExportBlock[] = [];
 
   if (!stripMarkdown) {
@@ -52,14 +140,14 @@ export function markdownToExportBlocks(
     }
     const heading = !inFence ? rawLine.match(/^[ \t]{0,3}(#{1,6})[ \t]+(.+)$/) : null;
     if (heading) {
-      blocks.push({ kind: "heading", level: heading[1].length, text: cleanInlineMarkdown(heading[2]).trim() });
+      blocks.push({ kind: "heading", level: heading[1].length, text: stripInlineMarkdown(heading[2]).trim() });
       continue;
     }
     if (!inFence && /^[ \t]*(?:---+|___+|\*\*\*+)[ \t]*$/.test(rawLine)) {
       blocks.push({ kind: "blank", text: "" });
       continue;
     }
-    const text = cleanInlineMarkdown(rawLine);
+    const text = stripInlineMarkdown(rawLine);
     blocks.push(text.trim() ? { kind: "paragraph", text } : { kind: "blank", text: "" });
   }
 
@@ -84,11 +172,28 @@ export function combineExportSources(
 ): ExportBlock[] {
   const result: ExportBlock[] = [];
   for (const [index, source] of sources.entries()) {
-    if (index > 0) result.push({ kind: "page-break", text: "" });
-    if (includeFileTitles) {
-      result.push({ kind: "heading", level: 1, text: source.title });
+    if (index > 0) {
+      result.push({
+        kind: "page-break",
+        text: "",
+        sourceIndex: index,
+        sourceTitle: source.title,
+      });
     }
-    result.push(...markdownToExportBlocks(source.markdown, stripMarkdown));
+    if (includeFileTitles) {
+      result.push({
+        kind: "heading",
+        level: 1,
+        text: source.title,
+        sourceIndex: index,
+        sourceTitle: source.title,
+      });
+    }
+    result.push(...markdownToExportBlocks(source.markdown, stripMarkdown).map((block) => ({
+      ...block,
+      sourceIndex: index,
+      sourceTitle: source.title,
+    })));
   }
   return result;
 }
@@ -133,11 +238,13 @@ export function getAvailableExportBaseName(
   const safeExtension = extension.replace(/^\.+/, "").toLowerCase();
   let candidate = safeName;
   let suffix = 2;
+  const isPng = safeExtension === "png";
   while (
     pathExists(`写作导出/${candidate}.${safeExtension}`) ||
+    pathExists(`写作导出/${candidate}-第1张.${safeExtension}`) ||
     pathExists(`写作导出/${candidate}-第1页.${safeExtension}`)
   ) {
-    candidate = `${safeName}-${suffix}`;
+    candidate = isPng ? `${safeName} (${suffix - 1})` : `${safeName}-${suffix}`;
     suffix += 1;
   }
   return candidate;

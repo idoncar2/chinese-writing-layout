@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   analyzeChineseText,
-  countWritingCharacters,
+  countCreativeWords,
   isProseLine,
 } from "../src/text-analysis";
 
@@ -29,10 +29,27 @@ describe("analyzeChineseText", () => {
   });
 });
 
-describe("countWritingCharacters", () => {
-  it("omits frontmatter and whitespace", () => {
-    expect(countWritingCharacters("---\ntitle: 测试\n---\n你好， 世界。"))
-      .toBe(6);
+describe("countCreativeWords", () => {
+  it("uses the writing-calendar creative-word count for visible Markdown prose", () => {
+    expect(countCreativeWords("---\ntitle: 测试\n---\n你好， 世界。"))
+      .toBe(4);
+
+    const markdown = [
+      "---",
+      "title: ignored",
+      "---",
+      "## **你好，world！** [回家](chapter-02.md) 2026 😊",
+      "",
+      "`inline code` and ![图片](image.png)",
+      "",
+      "<!-- hidden comment -->",
+      "```ts",
+      "const hidden = 123;",
+      "```",
+      "正文 ^note-id",
+    ].join("\n");
+
+    expect(countCreativeWords(markdown)).toBe(9);
   });
 });
 

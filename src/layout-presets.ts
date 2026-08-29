@@ -4,10 +4,23 @@ import {
   type ChineseWritingSettings,
   type CssClassLayoutRule,
   type CustomLayoutPreset,
+  type DocumentLayoutSettings,
   type LayoutPresetId,
   type LayoutPresetOverrides,
   type LayoutPresetValues,
 } from "./types";
+import {
+  isObsidianFontPlaceholder,
+  normalizeObsidianFontFamily,
+  OBSIDIAN_NATIVE_FONT_FAMILY,
+} from "./obsidian-baseline";
+import {
+  fontSelectionToLegacyFontFamily,
+  isFontSelection,
+  normalizeFontSelection,
+  normalizeFontSelections,
+  type FontRole,
+} from "./font-selection";
 
 function normalizeNumber(
   value: unknown,
@@ -24,7 +37,12 @@ function normalizeNumber(
 export function captureLayoutPreset(
   settings: ChineseWritingSettings,
 ): LayoutPresetValues {
-  return {
+  const values: LayoutPresetValues = {
+    bodyFont: { ...settings.bodyFont },
+    headingFont: { ...settings.headingFont },
+    quoteFont: { ...settings.quoteFont },
+    boldFont: { ...settings.boldFont },
+    italicFont: { ...settings.italicFont },
     fontFamily: settings.fontFamily,
     headingFontFamily: settings.headingFontFamily,
     quoteFontFamily: settings.quoteFontFamily,
@@ -32,44 +50,55 @@ export function captureLayoutPreset(
     italicFontFamily: settings.italicFontFamily,
     fontSize: settings.fontSize,
     lineHeight: settings.lineHeight,
+    letterSpacing: settings.letterSpacing,
     paragraphSpacing: settings.paragraphSpacing,
     firstLineIndent: settings.firstLineIndent,
     contentWidth: settings.contentWidth,
+    leftMargin: settings.leftMargin,
+    rightMargin: settings.rightMargin,
     paperTheme: settings.paperTheme,
     customPaperImage: settings.customPaperImage,
     justifyText: settings.justifyText,
   };
+  if (settings.contentWidthPx !== undefined) values.contentWidthPx = settings.contentWidthPx;
+  return values;
 }
 
 export function normalizeLayoutPresetValues(
-  values: (Partial<LayoutPresetValues> & { specialFontFamily?: string }) | null | undefined,
+  values: (Partial<LayoutPresetValues> & { specialFontFamily?: unknown }) | null | undefined,
 ): LayoutPresetValues {
-  const fontFamily = typeof values?.fontFamily === "string" && values.fontFamily.trim()
-    ? values.fontFamily.trim()
-    : DEFAULT_SETTINGS.fontFamily;
+  const fontSelections = normalizeFontSelections(values, { missingHeading: "body" });
+  const hasBodyLegacy = hasFontFamilyValue(values?.fontFamily);
+  const fontFamily = hasBodyLegacy
+    ? normalizeObsidianFontFamily(values?.fontFamily, DEFAULT_SETTINGS.fontFamily)
+    : values?.bodyFont !== undefined
+      ? fontSelectionToLegacyFontFamily(fontSelections.bodyFont, "body")
+      : DEFAULT_SETTINGS.fontFamily;
+  const contentWidthPx = normalizeContentWidthPx(values?.contentWidthPx);
+  const hasHeadingLegacy = hasFontFamilyValue(values?.headingFontFamily);
+  const headingFontFamily = hasHeadingLegacy
+    ? normalizeObsidianFontFamily(values?.headingFontFamily, fontFamily)
+    : values?.headingFont !== undefined
+      ? fontSelectionToLegacyFontFamily(fontSelections.headingFont, "heading")
+      : hasBodyLegacy
+        ? fontFamily
+        : DEFAULT_SETTINGS.fontFamily;
   return {
+    ...fontSelections,
     fontFamily,
-    headingFontFamily:
-      typeof values?.headingFontFamily === "string" && values.headingFontFamily.trim()
-        ? values.headingFontFamily.trim()
-        : fontFamily,
-    quoteFontFamily: normalizeSpecialFormatFont(
-      values?.quoteFontFamily,
-      values?.specialFontFamily,
-      fontFamily,
-    ),
-    boldFontFamily: normalizeSpecialFormatFont(
-      values?.boldFontFamily,
-      values?.specialFontFamily,
-      fontFamily,
-    ),
-    italicFontFamily: normalizeSpecialFormatFont(
-      values?.italicFontFamily,
-      values?.specialFontFamily,
-      fontFamily,
-    ),
+    headingFontFamily,
+    quoteFontFamily: normalizeSpecialFormatFont(values, "quote", fontFamily, fontSelections.quoteFont),
+    boldFontFamily: normalizeSpecialFormatFont(values, "bold", fontFamily, fontSelections.boldFont),
+    italicFontFamily: normalizeSpecialFormatFont(values, "italic", fontFamily, fontSelections.italicFont),
     fontSize: normalizeNumber(values?.fontSize, DEFAULT_SETTINGS.fontSize, 14, 28, 1),
     lineHeight: normalizeNumber(values?.lineHeight, DEFAULT_SETTINGS.lineHeight, 1.4, 2.6, 0.1),
+    letterSpacing: normalizeNumber(
+      values?.letterSpacing,
+      DEFAULT_SETTINGS.letterSpacing,
+      -1,
+      4,
+      0.1,
+    ),
     paragraphSpacing: normalizeNumber(
       values?.paragraphSpacing,
       DEFAULT_SETTINGS.paragraphSpacing,
@@ -85,6 +114,9 @@ export function normalizeLayoutPresetValues(
       0.5,
     ),
     contentWidth: normalizeNumber(values?.contentWidth, DEFAULT_SETTINGS.contentWidth, 28, 72, 1),
+    ...(contentWidthPx === undefined ? {} : { contentWidthPx }),
+    leftMargin: normalizeNumber(values?.leftMargin, DEFAULT_SETTINGS.leftMargin, 0, 12, 0.5),
+    rightMargin: normalizeNumber(values?.rightMargin, DEFAULT_SETTINGS.rightMargin, 0, 12, 0.5),
     paperTheme: normalizePaperTheme(values?.paperTheme),
     customPaperImage: typeof values?.customPaperImage === "string"
       ? values.customPaperImage
@@ -96,6 +128,27 @@ export function normalizeLayoutPresetValues(
 }
 
 /**
+ * 保存模板后立即让当前作用域使用同一份完整快照。
+ * 这一步不能只切换 layoutPreset，否则全局作用域会重新暴露旧的插件默认字段。
+ */
+export function applySavedLayoutPresetSnapshot(
+  settings: ChineseWritingSettings,
+  preset: CustomLayoutPreset,
+  documentLayout?: DocumentLayoutSettings,
+): void {
+  const values = normalizeLayoutPresetValues(preset.values);
+  const presetId = `saved:${preset.id}` as LayoutPresetId;
+  if (documentLayout) {
+    documentLayout.values = { ...values };
+    documentLayout.layoutPreset = presetId;
+    return;
+  }
+  Object.assign(settings, values);
+  if (values.contentWidthPx === undefined) delete settings.contentWidthPx;
+  settings.layoutPreset = presetId;
+}
+
+/**
  * 只保留用户明确设置过的字段。它不能调用完整版式的默认值逻辑，
  * 否则“跟随 Obsidian”会被一整套插件默认值重新覆盖。
  */
@@ -104,22 +157,33 @@ export function normalizeLayoutPresetOverrides(
 ): LayoutPresetOverrides {
   if (!values) return {};
   const normalized: LayoutPresetOverrides = {};
-  if (typeof values.fontFamily === "string" && values.fontFamily.trim()) {
-    normalized.fontFamily = values.fontFamily.trim();
-  }
-  if (typeof values.headingFontFamily === "string" && values.headingFontFamily.trim()) {
-    normalized.headingFontFamily = values.headingFontFamily.trim();
-  }
-  for (const key of ["quoteFontFamily", "boldFontFamily", "italicFontFamily"] as const) {
-    if (typeof values[key] === "string" && values[key].trim()) {
-      normalized[key] = values[key].trim();
+  const structuredFontRoles = [
+    ["bodyFont", "fontFamily", "body"],
+    ["headingFont", "headingFontFamily", "heading"],
+    ["quoteFont", "quoteFontFamily", "quote"],
+    ["boldFont", "boldFontFamily", "bold"],
+    ["italicFont", "italicFontFamily", "italic"],
+  ] as const;
+  for (const [selectionKey, legacyKey, role] of structuredFontRoles) {
+    if (values[selectionKey] !== undefined && isFontSelection(values[selectionKey])) {
+      const selection = normalizeFontSelection(values[selectionKey], role);
+      if (selection.source !== "obsidian" && selection.source !== "inherit") {
+        normalized[selectionKey] = selection;
+        normalized[legacyKey] = fontSelectionToLegacyFontFamily(selection, role);
+      }
+      continue;
     }
+    const legacyValue = getExplicitLayoutFontFamily(values[legacyKey]);
+    if (legacyValue) normalized[legacyKey] = legacyValue;
   }
   if (typeof values.fontSize === "number") {
     normalized.fontSize = normalizeNumber(values.fontSize, DEFAULT_SETTINGS.fontSize, 14, 28, 1);
   }
   if (typeof values.lineHeight === "number") {
     normalized.lineHeight = normalizeNumber(values.lineHeight, DEFAULT_SETTINGS.lineHeight, 1.4, 2.6, 0.1);
+  }
+  if (typeof values.letterSpacing === "number") {
+    normalized.letterSpacing = normalizeNumber(values.letterSpacing, DEFAULT_SETTINGS.letterSpacing, -1, 4, 0.1);
   }
   if (typeof values.paragraphSpacing === "number") {
     normalized.paragraphSpacing = normalizeNumber(values.paragraphSpacing, DEFAULT_SETTINGS.paragraphSpacing, 0, 2, 0.1);
@@ -130,20 +194,85 @@ export function normalizeLayoutPresetOverrides(
   if (typeof values.contentWidth === "number") {
     normalized.contentWidth = normalizeNumber(values.contentWidth, DEFAULT_SETTINGS.contentWidth, 28, 72, 1);
   }
+  if (typeof values.leftMargin === "number") {
+    normalized.leftMargin = normalizeNumber(values.leftMargin, DEFAULT_SETTINGS.leftMargin, 0, 12, 0.5);
+  }
+  if (typeof values.rightMargin === "number") {
+    normalized.rightMargin = normalizeNumber(values.rightMargin, DEFAULT_SETTINGS.rightMargin, 0, 12, 0.5);
+  }
   if (values.paperTheme !== undefined) normalized.paperTheme = normalizePaperTheme(values.paperTheme);
   if (typeof values.customPaperImage === "string") normalized.customPaperImage = values.customPaperImage;
   if (typeof values.justifyText === "boolean") normalized.justifyText = values.justifyText;
   return normalized;
 }
 
+/**
+ * Removing an explicit font choice must also remove the legacy CSS field that
+ * may have been saved alongside it. Otherwise a Follow Obsidian layout keeps
+ * applying the previous font even though the picker now shows “默认”.
+ */
+export function clearFollowObsidianFontOverrides(
+  overrides: LayoutPresetOverrides,
+  patch: Partial<LayoutPresetValues>,
+): void {
+  const structuredFontRoles = [
+    ["bodyFont", "fontFamily"],
+    ["headingFont", "headingFontFamily"],
+    ["quoteFont", "quoteFontFamily"],
+    ["boldFont", "boldFontFamily"],
+    ["italicFont", "italicFontFamily"],
+  ] as const;
+  for (const [selectionKey, legacyKey] of structuredFontRoles) {
+    const selection = patch[selectionKey];
+    if (
+      isFontSelection(selection)
+      && (selection.source === "obsidian" || selection.source === "inherit")
+    ) {
+      delete overrides[selectionKey];
+      delete overrides[legacyKey];
+    }
+  }
+}
+
 function normalizeSpecialFormatFont(
-  value: unknown,
-  legacyValue: unknown,
+  values: (Partial<LayoutPresetValues> & { specialFontFamily?: unknown }) | null | undefined,
+  role: Extract<FontRole, "quote" | "bold" | "italic">,
   fallback: string,
+  selection: LayoutPresetValues["quoteFont"],
 ): string {
-  if (typeof value === "string" && value.trim()) return value.trim();
-  if (typeof legacyValue === "string" && legacyValue.trim()) return legacyValue.trim();
+  const legacyKey = `${role}FontFamily` as "quoteFontFamily" | "boldFontFamily" | "italicFontFamily";
+  const current = normalizeObsidianFontFamily(values?.[legacyKey], "");
+  if (current) return current;
+  const legacy = normalizeObsidianFontFamily(values?.specialFontFamily, "");
+  if (legacy) return legacy;
+  if (values?.[`${role}Font`] !== undefined) {
+    return selection.source === "inherit"
+      ? fallback
+      : fontSelectionToLegacyFontFamily(selection, role);
+  }
   return fallback;
+}
+
+function hasFontFamilyValue(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function normalizeContentWidthPx(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
+  return Number(Math.min(10000, value).toFixed(2));
+}
+
+function getExplicitLayoutFontFamily(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  const normalized = trimmed.toLowerCase();
+  if (
+    !trimmed
+    || isObsidianFontPlaceholder(trimmed)
+    || normalized === OBSIDIAN_NATIVE_FONT_FAMILY
+    || /var\(\s*--font-[^)]+\)/u.test(normalized)
+  ) return undefined;
+  return trimmed;
 }
 
 export function normalizeLayoutPresetId(

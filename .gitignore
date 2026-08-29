@@ -13,7 +13,8 @@ Thumbs.db
 data.json
 .deploy.local.json
 
-# Temporary release packages
+# Build output and temporary release packages
+main.js
 release/
 *.zip
 *.log

@@ -1,9 +1,9 @@
 {
   "id": "chinese-writing-layout",
-  "name": "中文写作排版",
-  "version": "0.14.3",
+  "name": "Chinese Writing Layout",
+  "version": "1.0.0",
   "minAppVersion": "1.8.0",
-  "description": "为中文长文提供多主题纸张、自定义背景、高级文本整理和多格式导出。",
+  "description": "为中文长文提供多主题纸张、自定义背景、高级文本整理和多格式导出.",
   "author": "idoncar2",
   "authorUrl": "https://github.com/idoncar2",
   "isDesktopOnly": false

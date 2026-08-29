@@ -1,3 +1,5 @@
+import type { CountMode } from "./types";
+
 export type DiagnosticKind =
   | "halfwidth-punctuation"
   | "repeated-punctuation"
@@ -17,6 +19,9 @@ interface TextRange {
 }
 
 const HAN = /\p{Script=Han}/u;
+const LATIN = /^\p{Script=Latin}$/u;
+const DECIMAL_NUMBER = /^\p{Decimal_Number}$/u;
+const MARK = /^\p{M}$/u;
 
 function mergeRanges(ranges: TextRange[]): TextRange[] {
   const sorted = ranges.sort((a, b) => a.from - b.from || a.to - b.to);
@@ -170,12 +175,129 @@ export function analyzeChineseText(text: string): TextDiagnostic[] {
   return diagnostics.sort((a, b) => a.from - b.from || a.to - b.to);
 }
 
-export function countWritingCharacters(text: string): number {
-  const withoutFrontmatter = text.replace(
-    /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/,
-    "",
-  );
-  return withoutFrontmatter.replace(/\s/gu, "").length;
+export function countCreativeWords(text: string): number {
+  const visible = visibleMarkdownText(stripYamlFrontMatter(text));
+  const codePoints = Array.from(visible);
+  let count = 0;
+  let index = 0;
+
+  while (index < codePoints.length) {
+    const character = codePoints[index] ?? "";
+    if (HAN.test(character)) {
+      count += 1;
+      index += 1;
+    } else if (LATIN.test(character)) {
+      count += 1;
+      index = consumeLatinWord(codePoints, index);
+    } else if (DECIMAL_NUMBER.test(character)) {
+      count += 1;
+      index = consumeNumber(codePoints, index);
+    } else {
+      index += 1;
+    }
+  }
+
+  return count;
+}
+
+export function countBodyCharacters(text: string): number {
+  return Array.from(stripYamlFrontMatter(text))
+    .filter((character) => !/^\s$/u.test(character))
+    .length;
+}
+
+export function countWritingText(text: string, mode: CountMode): number {
+  return mode === "body-characters"
+    ? countBodyCharacters(text)
+    : countCreativeWords(text);
+}
+
+function stripYamlFrontMatter(markdown: string): string {
+  const lines = markdown.split(/\r?\n/u);
+  const firstLine = (lines[0] ?? "").replace(/^\uFEFF/u, "");
+  if (!/^\s*---\s*$/u.test(firstLine)) return markdown;
+
+  for (let index = 1; index < lines.length; index += 1) {
+    if (/^\s*(?:---|\.\.\.)\s*$/u.test(lines[index] ?? "")) {
+      return lines.slice(index + 1).join("\n");
+    }
+  }
+  return markdown;
+}
+
+function visibleMarkdownText(markdown: string): string {
+  let text = removeFencedCode(markdown);
+  text = text.replace(/<!--[\s\S]*?-->/gu, "\n");
+  text = text.replace(/%%[\s\S]*?%%/gu, "\n");
+  text = text.replace(/!\[\[[^\]\n]*\]\]/gu, "\n");
+  text = text.replace(/!\[[^\]\n]*\]\([^\n]*?\)/gu, "\n");
+  text = text.replace(/!\[[^\]\n]*\]\[[^\]\n]*\]/gu, "\n");
+  text = text.replace(/<img\b[^>]*>/giu, "\n");
+  text = text.replace(/`+[^`\n]*`+/gu, "\n");
+  text = text.replace(/^[ \t]{0,3}\[[^\]\n]+\]:[^\n]*$/gmu, "");
+  text = text.replace(/\[\[[^\]|\n]+\|([^\]\n]+)\]\]/gu, "$1");
+  text = text.replace(/\[\[([^\]|\n]+)\]\]/gu, "$1");
+  text = text.replace(/\[([^\]\n]*)\]\([^\n]*?\)/gu, "$1");
+  text = text.replace(/\[([^\]\n]+)\]\[[^\]\n]*\]/gu, "$1");
+  text = text.replace(/<[^>\n]+>/gu, "\n");
+  text = text.replace(/\^[A-Za-z0-9][A-Za-z0-9_-]*/gu, "\n");
+  text = text.replace(/\\([\\`*_{}\[\]()#+\-.!>])/gu, "$1");
+  text = text.replace(/(^|\n)[ \t]{0,3}(?:#{1,6}[ \t]+|>[ \t]?|[-+*][ \t]+|\d{1,9}[.)][ \t]+)/gu, "$1");
+  text = text.replace(/(?:\*\*|__|~~)/gu, "");
+  text = text.replace(/(?<!\w)[*_](?=\S)|(?<=\S)[*_](?!\w)/gu, "");
+  return text.replace(/[\[\]]/gu, "");
+}
+
+function removeFencedCode(markdown: string): string {
+  const lines = markdown.split(/\r?\n/u);
+  let fenceCharacter: "`" | "~" | undefined;
+  const visible: string[] = [];
+
+  for (const line of lines) {
+    const opening = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
+    if (fenceCharacter === undefined) {
+      if (opening !== null) {
+        fenceCharacter = opening[1]?.startsWith("~") ? "~" : "`";
+        visible.push("");
+      } else {
+        visible.push(line);
+      }
+      continue;
+    }
+    if (new RegExp(`^ {0,3}${fenceCharacter}{3,}`).test(line)) {
+      fenceCharacter = undefined;
+    }
+    visible.push("");
+  }
+
+  return visible.map((line) => /^(?: {4}|\t)/u.test(line) ? "" : line).join("\n");
+}
+
+function consumeLatinWord(codePoints: string[], start: number): number {
+  let index = start;
+  while (index < codePoints.length) {
+    if (LATIN.test(codePoints[index] ?? "")) {
+      index += 1;
+      continue;
+    }
+    if (MARK.test(codePoints[index] ?? "") && index > start) {
+      index += 1;
+      continue;
+    }
+    const apostrophe = codePoints[index] === "'" || codePoints[index] === "’";
+    if (apostrophe && LATIN.test(codePoints[index + 1] ?? "")) {
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  return index;
+}
+
+function consumeNumber(codePoints: string[], start: number): number {
+  let index = start;
+  while (DECIMAL_NUMBER.test(codePoints[index] ?? "")) index += 1;
+  return index;
 }
 
 export function isProseLine(text: string, inFence: boolean): boolean {

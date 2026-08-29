@@ -2,6 +2,7 @@ import {
   ItemView,
   MarkdownView,
   Modal,
+  Platform,
   Setting,
   setIcon,
   type WorkspaceLeaf,
@@ -9,22 +10,29 @@ import {
 import type ChineseWritingLayoutPlugin from "./main";
 import {
   analyzeChineseText,
-  countWritingCharacters,
+  countWritingText,
   type TextDiagnostic,
 } from "./text-analysis";
 import {
   FontPickerModal,
+  getFontSelectionDisplayName,
+  getFontSelectionPreviewFamily,
 } from "./font-options";
-import { getFontStackSummary } from "./system-fonts";
+import { fontSelectionToLegacyFontFamily, type FontRole } from "./font-selection";
 import {
   formatFontSize,
+  formatLetterSpacing,
   formatLineHeight,
+  getObsidianFontDisplayName,
   readObsidianTypographyBaseline,
 } from "./obsidian-baseline";
 import {
+  HEADING_LEVELS,
   TYPEWRITER_CURSOR_POSITIONS,
   PAPER_THEME_OPTIONS,
   type InterfaceAccentMode,
+  type FontSelection,
+  type LayoutPresetValues,
   type LayoutPresetId,
   type PaperTheme,
 } from "./types";
@@ -41,9 +49,12 @@ const DIAGNOSTIC_LABELS = {
 type NumericSettingKey =
   | "fontSize"
   | "lineHeight"
+  | "letterSpacing"
   | "paragraphSpacing"
   | "firstLineIndent"
-  | "contentWidth";
+  | "contentWidth"
+  | "leftMargin"
+  | "rightMargin";
 
 type FontSettingKey =
   | "fontFamily"
@@ -51,6 +62,24 @@ type FontSettingKey =
   | "quoteFontFamily"
   | "boldFontFamily"
   | "italicFontFamily";
+
+type FontSelectionSettingKey =
+  | "bodyFont"
+  | "headingFont"
+  | "quoteFont"
+  | "boldFont"
+  | "italicFont";
+
+const FONT_SETTING_CONFIG: Record<FontSettingKey, {
+  selectionKey: FontSelectionSettingKey;
+  role: FontRole;
+}> = {
+  fontFamily: { selectionKey: "bodyFont", role: "body" },
+  headingFontFamily: { selectionKey: "headingFont", role: "heading" },
+  quoteFontFamily: { selectionKey: "quoteFont", role: "quote" },
+  boldFontFamily: { selectionKey: "boldFont", role: "bold" },
+  italicFontFamily: { selectionKey: "italicFont", role: "italic" },
+};
 
 interface SliderDefinition {
   key: NumericSettingKey;
@@ -79,6 +108,14 @@ const SLIDERS: SliderDefinition[] = [
     unit: "倍",
   },
   {
+    key: "letterSpacing",
+    label: "字距",
+    minimum: -1,
+    maximum: 4,
+    step: 0.1,
+    unit: "px",
+  },
+  {
     key: "paragraphSpacing",
     label: "段距",
     minimum: 0,
@@ -101,6 +138,22 @@ const SLIDERS: SliderDefinition[] = [
     maximum: 72,
     step: 1,
     unit: "字宽",
+  },
+  {
+    key: "leftMargin",
+    label: "左间距",
+    minimum: 0,
+    maximum: 12,
+    step: 0.5,
+    unit: "字符",
+  },
+  {
+    key: "rightMargin",
+    label: "右间距",
+    minimum: 0,
+    maximum: 12,
+    step: 0.5,
+    unit: "字符",
   },
 ];
 
@@ -218,15 +271,53 @@ class LayoutPresetOverwriteConfirmModal extends Modal {
 export class WritingPanelView extends ItemView {
   private plugin: ChineseWritingLayoutPlugin;
   private fontAdvancedOpen = false;
+  private headingCenteringOpen = false;
 
   private panelScrollTop = 0;
   private restoringPanelScroll = false;
   private restoreScrollFrame?: number;
+  private panelTouchActive = false;
+  private refreshPendingAfterTouch = false;
+  private panelTouchFinishTimer?: number;
 
   private rememberPanelScroll = (): void => {
     if (!this.restoringPanelScroll) {
       this.panelScrollTop = this.contentEl.scrollTop;
     }
+    if (this.panelTouchActive && this.panelTouchFinishTimer !== undefined) {
+      this.finishPanelTouch();
+    }
+  };
+
+  private cancelPendingScrollRestore(): void {
+    if (this.restoreScrollFrame !== undefined) {
+      window.cancelAnimationFrame(this.restoreScrollFrame);
+      this.restoreScrollFrame = undefined;
+    }
+    this.restoringPanelScroll = false;
+  }
+
+  private interruptPanelScrollRestore = (): void => {
+    if (this.panelTouchFinishTimer !== undefined) {
+      window.clearTimeout(this.panelTouchFinishTimer);
+      this.panelTouchFinishTimer = undefined;
+    }
+    this.panelTouchActive = true;
+    this.cancelPendingScrollRestore();
+    this.panelScrollTop = this.contentEl.scrollTop;
+  };
+
+  private finishPanelTouch = (): void => {
+    if (this.panelTouchFinishTimer !== undefined) {
+      window.clearTimeout(this.panelTouchFinishTimer);
+    }
+    this.panelTouchFinishTimer = window.setTimeout(() => {
+      this.panelTouchFinishTimer = undefined;
+      this.panelTouchActive = false;
+      if (!this.refreshPendingAfterTouch) return;
+      this.refreshPendingAfterTouch = false;
+      this.refresh();
+    }, 180);
   };
 
   constructor(leaf: WorkspaceLeaf, plugin: ChineseWritingLayoutPlugin) {
@@ -254,6 +345,13 @@ export class WritingPanelView extends ItemView {
       this.rememberPanelScroll,
       { passive: true },
     );
+    this.contentEl.addEventListener(
+      "touchstart",
+      this.interruptPanelScrollRestore,
+      { passive: true },
+    );
+    this.contentEl.addEventListener("touchend", this.finishPanelTouch, { passive: true });
+    this.contentEl.addEventListener("touchcancel", this.finishPanelTouch, { passive: true });
 
     this.refresh();
   }
@@ -263,25 +361,36 @@ export class WritingPanelView extends ItemView {
       "scroll",
       this.rememberPanelScroll,
     );
+    this.contentEl.removeEventListener(
+      "touchstart",
+      this.interruptPanelScrollRestore,
+    );
+    this.contentEl.removeEventListener("touchend", this.finishPanelTouch);
+    this.contentEl.removeEventListener("touchcancel", this.finishPanelTouch);
 
-    if (this.restoreScrollFrame !== undefined) {
-      window.cancelAnimationFrame(this.restoreScrollFrame);
+    this.cancelPendingScrollRestore();
+    if (this.panelTouchFinishTimer !== undefined) {
+      window.clearTimeout(this.panelTouchFinishTimer);
+      this.panelTouchFinishTimer = undefined;
     }
+    this.panelTouchActive = false;
+    this.refreshPendingAfterTouch = false;
 
     this.contentEl.empty();
   }
 
   refresh(): void {
+    if (this.panelTouchActive) {
+      this.refreshPendingAfterTouch = true;
+      return;
+    }
     const container = this.contentEl;
 
-    const previousScrollTop = Math.max(
-      this.panelScrollTop,
-      container.scrollTop,
-    );
+    const previousScrollTop = this.restoringPanelScroll
+      ? this.panelScrollTop
+      : container.scrollTop;
 
-    if (this.restoreScrollFrame !== undefined) {
-      window.cancelAnimationFrame(this.restoreScrollFrame);
-    }
+    this.cancelPendingScrollRestore();
 
     const restoreScroll = (): void => {
       this.restoringPanelScroll = true;
@@ -330,6 +439,8 @@ export class WritingPanelView extends ItemView {
     }
 
     const isNovel = this.plugin.isNovelFile(view.file);
+    const writingContext = this.plugin.getWritingContextForFile(view.file);
+    const documentWritingMode = this.plugin.getCurrentDocumentWritingMode();
     const noteCard = container.createDiv({ cls: "cw-panel-note-card" });
     const noteMain = noteCard.createDiv({ cls: "cw-panel-note-main" });
     const noteCopy = noteMain.createDiv({ cls: "cw-panel-note-copy" });
@@ -346,11 +457,29 @@ export class WritingPanelView extends ItemView {
       },
     });
     noteCard.createDiv({
-      text: isNovel
-        ? "显示效果由下方“版式微调”控制。"
-        : "开启后可在下方调整字号、行距、缩进与纸张。",
+      text: documentWritingMode
+        ? documentWritingMode === "force-on"
+          ? "当前笔记已手动强制开启；可随时恢复跟随自动规则。"
+          : "当前笔记已手动强制关闭；自动规则不会再次把它打开。"
+        : writingContext.activationSource.kind === "rule"
+          ? "当前由第一条匹配的自动规则决定。"
+          : writingContext.activationSource.kind === "legacy-activation-class"
+            ? `当前由兼容 CSS Class：${writingContext.activationSource.cssClass} 开启。`
+            : isNovel
+              ? "当前跟随全局默认开启。"
+              : "当前跟随自动规则与全局默认。",
       cls: "cw-panel-note-help",
     });
+    if (documentWritingMode) {
+      const followButton = noteCard.createEl("button", {
+        text: "恢复跟随自动规则",
+        cls: "cw-panel-follow-rules-button",
+        attr: { type: "button" },
+      });
+      followButton.addEventListener("click", () => {
+        void this.plugin.clearCurrentDocumentWritingMode().then(() => this.refresh());
+      });
+    }
     modeButton.addEventListener("click", () => {
       void this.plugin.toggleNovelMode(view.file!).then(() => this.refresh());
     });
@@ -358,7 +487,11 @@ export class WritingPanelView extends ItemView {
     const text = view.editor.getValue();
     const diagnostics = analyzeChineseText(text);
     const stats = container.createDiv({ cls: "cw-panel-stats" });
-    this.addStat(stats, countWritingCharacters(text).toLocaleString(), "正文字符");
+    this.addStat(
+      stats,
+      countWritingText(text, this.plugin.settings.countMode).toLocaleString(),
+      this.plugin.settings.countMode === "creative" ? "创作字数" : "正文字符",
+    );
     this.addStat(stats, diagnostics.length.toLocaleString(), "写作提示");
 
     this.renderFormattingLauncher(container);
@@ -377,7 +510,33 @@ export class WritingPanelView extends ItemView {
   private renderGlobalControls(container: HTMLElement): void {
     const section = container.createDiv({ cls: "cw-panel-section" });
     const heading = section.createDiv({ cls: "cw-panel-section-heading" });
-    heading.createEl("h3", { text: "版式微调" });
+    const headingTitle = heading.createEl("h3", { text: "版式微调" });
+    headingTitle.setAttribute("aria-label", "版式微调");
+    const historyActions = heading.createDiv({ cls: "cw-panel-layout-history" });
+    const undoButton = historyActions.createEl("button", {
+      attr: {
+        type: "button",
+        "aria-label": "撤回版式修改",
+        title: "撤回版式修改",
+      },
+    });
+    setIcon(undoButton, "undo-2");
+    undoButton.disabled = !this.plugin.canUndoCurrentLayoutChange();
+    undoButton.addEventListener("click", () => {
+      void this.plugin.undoCurrentLayoutChange();
+    });
+    const redoButton = historyActions.createEl("button", {
+      attr: {
+        type: "button",
+        "aria-label": "恢复版式修改",
+        title: "恢复版式修改",
+      },
+    });
+    setIcon(redoButton, "redo-2");
+    redoButton.disabled = !this.plugin.canRedoCurrentLayoutChange();
+    redoButton.addEventListener("click", () => {
+      void this.plugin.redoCurrentLayoutChange();
+    });
     heading.createSpan({ text: "只改变显示", cls: "cw-panel-section-note" });
     section.createDiv({
       text: "写作模式开启后生效；这里的设置不会改写 Markdown 正文，并可保存为自定义模板。",
@@ -385,7 +544,7 @@ export class WritingPanelView extends ItemView {
     });
     const obsidianBaseline = readObsidianTypographyBaseline();
     section.createDiv({
-      text: `Obsidian 当前：${formatFontSize(obsidianBaseline.fontSize)} · ${formatLineHeight(obsidianBaseline.lineHeight)} 倍行距`,
+      text: `Obsidian 当前字体：${getObsidianFontDisplayName(obsidianBaseline.fontFamily)} · ${formatFontSize(obsidianBaseline.fontSize)} · 字距：${formatLetterSpacing(obsidianBaseline.letterSpacing)} · ${formatLineHeight(obsidianBaseline.lineHeight)} 倍行距`,
       cls: "cw-panel-help cw-panel-obsidian-baseline",
     });
 
@@ -396,12 +555,21 @@ export class WritingPanelView extends ItemView {
     const hasCurrentFile = Boolean(this.plugin.getWritingMarkdownView()?.file);
     scopeToggle.checked = this.plugin.isCurrentDocumentLayoutEnabled();
     scopeToggle.disabled = !hasCurrentFile;
-    const classRule = this.plugin.getCurrentCssClassLayoutRule();
+    const automaticRule = this.plugin.getCurrentAutoApplyRule();
+    const automaticRuleLabel = automaticRule
+      ? automaticRule.kind === "folder"
+        ? `文件夹：${automaticRule.folderPath}`
+        : automaticRule.kind === "tag"
+          ? `Tag：${automaticRule.tag}`
+          : automaticRule.kind === "filename"
+            ? `文件名：${automaticRule.pattern}`
+            : `CSS Class：${automaticRule.cssClass}`
+      : "";
     scope.createDiv({
       text: scopeToggle.checked
         ? "下方设置和模板只影响当前笔记。"
-        : classRule
-          ? `已匹配 cssclasses: ${classRule.cssClass}，自动使用“${this.plugin.getLayoutPresetLabel(classRule.layoutPreset)}”；调整下方设置会转为当前笔记独立版式。`
+        : automaticRule
+          ? `已匹配${automaticRuleLabel}，自动使用“${this.plugin.getLayoutPresetLabel(automaticRule.layoutPreset)}”；调整下方设置会转为当前笔记独立版式。`
         : "关闭时使用全局版式，调整会影响其他未独立设置的笔记。",
       cls: "cw-panel-layout-scope-help",
     });
@@ -413,7 +581,7 @@ export class WritingPanelView extends ItemView {
     const layout = this.plugin.getCurrentLayoutSettings();
 
     this.renderLayoutPresetControls(section);
-    this.renderFontControls(section);
+    this.renderFontControls(section, layout);
 
     for (const definition of SLIDERS) {
       this.addSlider(section, definition);
@@ -427,9 +595,16 @@ export class WritingPanelView extends ItemView {
     }
     themeSelect.value = layout.paperTheme;
     themeSelect.addEventListener("change", () => {
-      this.markLayoutPresetEdited();
-      this.plugin.previewLayoutSettings({ paperTheme: themeSelect.value as PaperTheme });
-      void this.plugin.commitSettings();
+      void this.plugin.performLayoutChange(
+        {
+          mergeKey: "field:paperTheme",
+          summary: { kind: "field", key: "paperTheme" },
+        },
+        () => {
+          this.markLayoutPresetEdited();
+          this.plugin.previewLayoutSettings({ paperTheme: themeSelect.value as PaperTheme });
+        },
+      );
     });
 
     const imageRow = section.createDiv({ cls: "cw-panel-control-row" });
@@ -445,16 +620,28 @@ export class WritingPanelView extends ItemView {
       imageRow.toggleClass("cw-panel-control-hidden", themeSelect.value !== "custom");
     });
     imageSelect.addEventListener("change", () => {
-      this.markLayoutPresetEdited();
-      this.plugin.previewLayoutSettings({
-        customPaperImage: imageSelect.value,
-        paperTheme: imageSelect.value ? "custom" : layout.paperTheme,
-      });
-      if (imageSelect.value) themeSelect.value = "custom";
-      void this.plugin.commitSettings();
+      void this.plugin.performLayoutChange(
+        {
+          mergeKey: "field:customPaperImage",
+          summary: { kind: "field", key: "customPaperImage" },
+        },
+        () => {
+          this.markLayoutPresetEdited();
+          this.plugin.previewLayoutSettings({
+            customPaperImage: imageSelect.value,
+            paperTheme: imageSelect.value
+              ? "custom"
+              : this.plugin.getCurrentLayoutSettings().paperTheme,
+          });
+          if (imageSelect.value) themeSelect.value = "custom";
+        },
+      );
     });
 
-    this.addToggle(section, "两端对齐", "justifyText");
+    this.renderHeadingCenteringControls(section);
+    this.addToggle(section, "两端对齐", "justifyText", "cw-panel-justify-row");
+
+    section.createDiv({ cls: "cw-panel-alignment-divider" });
 
     this.renderLayoutResetAction(section);
 
@@ -464,9 +651,85 @@ export class WritingPanelView extends ItemView {
     this.renderInterfaceAccentControls(section);
   }
 
+  private renderHeadingCenteringControls(section: HTMLElement): void {
+    const details = section.createEl("details", {
+      cls: "cw-panel-font-help cw-panel-heading-centering",
+    });
+    details.open = this.headingCenteringOpen;
+    details.addEventListener("toggle", () => {
+      this.headingCenteringOpen = details.open;
+    });
+
+    const summary = details.createEl("summary");
+    summary.createSpan({ text: "标题居中", cls: "cw-panel-heading-summary-label" });
+    const state = summary.createSpan({
+      text: this.getHeadingCenteringStateLabel(),
+      cls: "cw-panel-heading-state",
+    });
+    details.createDiv({
+      text: "只在写作模式下生效；展开后可选择需要居中的 Markdown 标题级别。",
+      cls: "cw-panel-heading-help",
+    });
+
+    const toggleRow = details.createDiv({
+      cls: "cw-panel-compact-row cw-panel-heading-toggle",
+    });
+    const toggleLabel = toggleRow.createEl("label");
+    toggleLabel.createSpan({ text: "启用标题居中" });
+    const toggle = toggleLabel.createEl("input", {
+      type: "checkbox",
+      attr: { "aria-label": "启用标题居中" },
+    });
+    toggle.checked = this.plugin.settings.centerHeadings;
+
+    const fieldset = details.createEl("fieldset", {
+      cls: "cw-panel-heading-levels",
+    });
+    fieldset.disabled = !toggle.checked;
+    fieldset.createEl("legend", { text: "居中标题级别" });
+    const options = fieldset.createDiv({ cls: "cw-panel-heading-level-options" });
+    const selected = new Set(this.plugin.settings.centerHeadingLevels);
+    for (const level of HEADING_LEVELS) {
+      const label = options.createEl("label", {
+        cls: "cw-panel-heading-level-option",
+      });
+      const input = label.createEl("input", {
+        type: "checkbox",
+        attr: {
+          "aria-label": `标题 H${level} 居中`,
+          "data-cw-heading-level": `${level}`,
+        },
+      });
+      input.checked = selected.has(level);
+      label.createSpan({ text: `H${level}` });
+      input.addEventListener("change", () => {
+        if (input.checked) selected.add(level);
+        else selected.delete(level);
+        this.plugin.previewSettings({
+          centerHeadingLevels: HEADING_LEVELS.filter((candidate) => selected.has(candidate)),
+        });
+        state.setText(this.getHeadingCenteringStateLabel());
+        void this.plugin.commitSettings();
+      });
+    }
+
+    toggle.addEventListener("change", () => {
+      fieldset.disabled = !toggle.checked;
+      this.plugin.previewSettings({ centerHeadings: toggle.checked });
+      state.setText(this.getHeadingCenteringStateLabel());
+      void this.plugin.commitSettings();
+    });
+  }
+
+  private getHeadingCenteringStateLabel(): string {
+    if (!this.plugin.settings.centerHeadings) return "关闭";
+    const count = this.plugin.settings.centerHeadingLevels.length;
+    return count > 0 ? `已开启 · ${count} 个级别` : "已开启 · 未选择级别";
+  }
+
   private renderLayoutResetAction(section: HTMLElement): void {
     const isDocumentLayout = this.plugin.isCurrentDocumentLayoutEnabled()
-      || Boolean(this.plugin.getCurrentCssClassLayoutRule());
+      || Boolean(this.plugin.getCurrentAutoApplyRule());
     const resetButton = section.createEl("button", {
       cls: "cw-panel-layout-reset",
       attr: {
@@ -623,11 +886,11 @@ export class WritingPanelView extends ItemView {
     this.plugin.markLayoutPresetEdited();
   }
 
-  private renderFontControls(section: HTMLElement): void {
+  private renderFontControls(section: HTMLElement, layout: LayoutPresetValues): void {
     const picker = section.createDiv({ cls: "cw-panel-font-picker" });
     picker.createDiv({ text: "字体", cls: "cw-panel-preset-label" });
-    this.addFontControlRow(picker, "正文", "fontFamily");
-    this.addFontControlRow(picker, "标题", "headingFontFamily");
+    this.addFontControlRow(picker, "正文", "fontFamily", layout);
+    this.addFontControlRow(picker, "标题", "headingFontFamily", layout);
 
     const advanced = picker.createEl("details", { cls: "cw-panel-font-help" });
     advanced.open = this.fontAdvancedOpen;
@@ -635,9 +898,9 @@ export class WritingPanelView extends ItemView {
       this.fontAdvancedOpen = advanced.open;
     });
     advanced.createEl("summary", { text: "更多字体设置" });
-    this.addFontControlRow(advanced, "引用", "quoteFontFamily");
-    this.addFontControlRow(advanced, "粗体", "boldFontFamily");
-    this.addFontControlRow(advanced, "斜体", "italicFontFamily");
+    this.addFontControlRow(advanced, "引用", "quoteFontFamily", layout);
+    this.addFontControlRow(advanced, "粗体", "boldFontFamily", layout);
+    this.addFontControlRow(advanced, "斜体", "italicFontFamily", layout);
     advanced.createEl("p", {
       text: "引用对应 > 段落，粗体对应 **文字**，斜体对应 *文字*。三项可以分别设置；字体窗口也提供手动字体列表与安装说明。",
     });
@@ -647,29 +910,58 @@ export class WritingPanelView extends ItemView {
     container: HTMLElement,
     label: string,
     key: FontSettingKey,
+    layout: LayoutPresetValues,
   ): void {
-    const current = this.plugin.getCurrentLayoutSettings()[key];
+    const config = FONT_SETTING_CONFIG[key];
+    const currentSelection = layout[config.selectionKey];
+    const displayName = getFontSelectionDisplayName(
+      currentSelection,
+      this.plugin.settings.userFonts,
+    );
     const button = container.createEl("button", {
       cls: "cw-panel-font-row",
       attr: {
         type: "button",
-        "aria-label": `${label}字体：${getFontStackSummary(current)}`,
+        "aria-label": `${label}字体：${displayName}`,
       },
     });
     button.createSpan({ text: label, cls: "cw-panel-font-row-label" });
     const value = button.createSpan({
-      text: getFontStackSummary(current),
+      text: displayName,
       cls: "cw-panel-font-row-value",
     });
-    value.style.fontFamily = current;
+    value.style.fontFamily = getFontSelectionPreviewFamily(
+      currentSelection,
+      this.plugin.settings.userFonts,
+    );
     const arrow = button.createSpan({ cls: "cw-panel-font-row-arrow" });
     setIcon(arrow, "chevron-right");
     button.addEventListener("click", () => {
-      new FontPickerModal(this.app, label, current, (fontFamily) => {
-        this.markLayoutPresetEdited();
-        this.plugin.previewLayoutSettings({ [key]: fontFamily });
-        void this.plugin.saveAndApplySettings();
-      }).open();
+      new FontPickerModal(
+        this.app,
+        label,
+        currentSelection,
+        this.plugin.settings.userFonts,
+        (selection: FontSelection) => {
+        void this.plugin.performLayoutChange(
+          {
+            mergeKey: `field:${key}`,
+            summary: { kind: "field", key },
+          },
+          () => {
+            this.markLayoutPresetEdited();
+            this.plugin.previewLayoutSettings({
+              [config.selectionKey]: selection,
+              [key]: fontSelectionToLegacyFontFamily(selection, config.role),
+            } as Partial<LayoutPresetValues>);
+          },
+        );
+        },
+        {
+          ...this.plugin.getFontPickerUserFontActions(),
+          onUserFontsChanged: () => this.refresh(),
+        },
+      ).open();
     });
   }
 
@@ -687,7 +979,7 @@ export class WritingPanelView extends ItemView {
       "align-center-vertical",
       "打字机",
       "输入行居中",
-      this.plugin.settings.typewriterMode,
+      this.plugin.isTypewriterModeEnabled(),
       () => void this.plugin.toggleTypewriterMode(),
       !isNovel,
     );
@@ -710,10 +1002,27 @@ export class WritingPanelView extends ItemView {
     this.addToolButton(
       grid,
       "folder-open",
-      "导出目录",
-      "打开文件夹",
+      "最近导出",
+      Platform.isMobileApp ? "移动端不可用" : "打开最近的本地导出文件夹",
       false,
       () => void this.plugin.openExportFolder(),
+      Platform.isMobileApp,
+    );
+    this.addToolButton(
+      grid,
+      "search",
+      "查找替换",
+      "使用 Obsidian 原生功能",
+      false,
+      () => this.plugin.openNativeFindReplace(),
+    );
+    this.addToolButton(
+      grid,
+      "history",
+      "历史版本",
+      "使用 Obsidian 文件恢复",
+      false,
+      () => this.plugin.openFileRecoverySnapshots(),
     );
 
     const typewriterOptions = section.createDiv({ cls: "cw-panel-typewriter-options" });
@@ -799,22 +1108,66 @@ export class WritingPanelView extends ItemView {
     };
     showValue();
 
+    let transactionActive = false;
+    const beginLayoutTransaction = (): void => {
+      if (transactionActive) return;
+      transactionActive = true;
+      this.plugin.beginLayoutChange({
+        mergeKey: `field:${definition.key}`,
+        summary: { kind: "field", key: definition.key },
+      });
+    };
+    const commitLayoutTransaction = (): void => {
+      if (!transactionActive) return;
+      transactionActive = false;
+      const record = this.plugin.commitLayoutChange({
+        mergeKey: `field:${definition.key}`,
+        summary: { kind: "field", key: definition.key },
+      });
+      if (record) void this.plugin.commitSettings();
+    };
+    const cancelLayoutTransaction = (): void => {
+      if (!transactionActive) return;
+      transactionActive = false;
+      void this.plugin.cancelLayoutChange().then(() => {
+        input.value = `${this.plugin.getCurrentLayoutSettings()[definition.key]}`;
+        showValue();
+      });
+    };
+
+    input.addEventListener("pointerdown", beginLayoutTransaction);
+    input.addEventListener("pointerup", commitLayoutTransaction);
+    input.addEventListener("pointercancel", cancelLayoutTransaction);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelLayoutTransaction();
+        return;
+      }
+      beginLayoutTransaction();
+    });
     input.addEventListener("input", () => {
+      beginLayoutTransaction();
       showValue();
       this.markLayoutPresetEdited();
       this.plugin.previewLayoutSettings({
         [definition.key]: Number(input.value),
       });
     });
-    input.addEventListener("change", () => void this.plugin.commitSettings());
+    input.addEventListener("change", commitLayoutTransaction);
+    input.addEventListener("keyup", commitLayoutTransaction);
+    input.addEventListener("blur", commitLayoutTransaction);
   }
 
   private addToggle(
     container: HTMLElement,
     labelText: string,
     key: "justifyText" | "showDiagnostics" | "showStatusBar",
+    rowClass = "",
   ): void {
-    const row = container.createDiv({ cls: "cw-panel-toggle-row" });
+    const row = container.createDiv({
+      cls: `cw-panel-toggle-row${rowClass ? ` ${rowClass}` : ""}`,
+    });
     const label = row.createEl("label");
     label.createSpan({ text: labelText });
     const input = label.createEl("input", { type: "checkbox" });
@@ -822,9 +1175,20 @@ export class WritingPanelView extends ItemView {
       ? this.plugin.getCurrentLayoutSettings().justifyText
       : this.plugin.settings[key];
     input.addEventListener("change", () => {
-      if (key === "justifyText") this.markLayoutPresetEdited();
-      if (key === "justifyText") this.plugin.previewLayoutSettings({ justifyText: input.checked });
-      else this.plugin.previewSettings({ [key]: input.checked });
+      if (key === "justifyText") {
+        void this.plugin.performLayoutChange(
+          {
+            mergeKey: "field:justifyText",
+            summary: { kind: "field", key: "justifyText" },
+          },
+          () => {
+            this.markLayoutPresetEdited();
+            this.plugin.previewLayoutSettings({ justifyText: input.checked });
+          },
+        );
+        return;
+      }
+      this.plugin.previewSettings({ [key]: input.checked });
       void this.plugin.commitSettings();
     });
   }

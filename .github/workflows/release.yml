@@ -53,6 +53,7 @@ jobs:
           PACKAGE_DIR="chinese-writing-layout"
           mkdir -p "$PACKAGE_DIR"
           cp main.js manifest.json styles.css "$PACKAGE_DIR/"
+          cp "安装指南.txt" INSTALL.txt
           zip -r "chinese-writing-layout-$VERSION.zip" "$PACKAGE_DIR"
 
       - name: Create GitHub release
@@ -64,4 +65,4 @@ jobs:
             echo "Release $VERSION already exists; nothing to do."
             exit 0
           fi
-          gh release create "$VERSION" main.js manifest.json styles.css "chinese-writing-layout-$VERSION.zip" --target "$GITHUB_SHA" --generate-notes --title "$VERSION"
+          gh release create "$VERSION" main.js manifest.json styles.css INSTALL.txt "chinese-writing-layout-$VERSION.zip" --target "$GITHUB_SHA" --generate-notes --title "$VERSION"

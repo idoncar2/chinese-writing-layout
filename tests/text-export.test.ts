@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   combineExportSources,
+  getAvailableExportBaseName,
   getAvailableExportPath,
   markdownToExportBlocks,
   markdownToPlainText,
@@ -22,6 +23,11 @@ describe("markdownToPlainText", () => {
     expect(markdownToPlainText(source)).toBe(
       "第一章\n\n这是重要的一句，见李新生。\n\n她没有回答。",
     );
+  });
+
+  it("removes task markers without leaving checkbox text", () => {
+    expect(markdownToPlainText("- [x] 已完成\n- [ ] 未完成"))
+      .toBe("已完成\n未完成");
   });
 
   it("keeps Markdown headings as structured export blocks", () => {
@@ -74,5 +80,11 @@ describe("getAvailableExportPath", () => {
     expect(getAvailableExportPath("第一章", () => false, "docx")).toBe(
       "写作导出/第一章.docx",
     );
+  });
+
+  it("reserves a complete PNG group when the first long image already exists", () => {
+    const existing = new Set(["写作导出/第一章-第1张.png"]);
+    expect(getAvailableExportBaseName("第一章", (path) => existing.has(path), "png"))
+      .toBe("第一章 (1)");
   });
 });
