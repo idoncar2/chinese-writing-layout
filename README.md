@@ -136,6 +136,36 @@ styles.css
 
 [`examples/小说模式示例.md`](examples/小说模式示例.md) 可以用于快速检查写作模式、中文标点提示和段首缩进。
 
+## English
+
+Chinese Writing Layout is an Obsidian plugin designed for long-form Chinese writing. It adds typography controls, text formatting, writing assistance, and export tools while keeping the original Markdown unchanged unless you explicitly run a formatting command.
+
+### Installation
+
+Install the plugin from the Obsidian Community Plugins directory when it becomes available.
+
+For manual installation, download the latest release and place these files in:
+
+```text
+.obsidian/plugins/chinese-writing-layout/
+```
+
+Required files:
+
+```text
+main.js
+manifest.json
+styles.css
+```
+
+Restart Obsidian, then enable **Chinese Writing Layout** in **Settings → Community plugins**.
+
+### Basic usage
+
+Open a Markdown note and enable Writing Mode from the ribbon button or the Writing Studio panel. You can then adjust typography, fonts, paper style, formatting rules, writing assistance, and export options.
+
+Writing Mode changes only how the note is displayed. The Markdown content is modified only when you explicitly run **One-click Formatting**.
+
 ## License
 
 [MIT License](./LICENSE)
