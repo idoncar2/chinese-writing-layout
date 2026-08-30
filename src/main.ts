@@ -94,8 +94,11 @@ import {
 import {
   createUserFontId,
   createUserFontMetadata,
+  findUserFontFilePath,
+  getLegacyUserFontDirectory as resolveLegacyUserFontDirectory,
   getUserFontDirectory as resolveUserFontDirectory,
   getUserFontFilePath,
+  migrateLegacyUserFontDirectory,
 } from "./user-fonts";
 import { getVaultFolderPath } from "./system-folder";
 import {
@@ -250,6 +253,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    await this.migrateLegacyUserFonts();
     await this.loadUserFonts();
     this.addSettingTab(new ChineseWritingSettingTab(this.app, this));
     this.registerEditorExtension(createWritingEditorExtension());
@@ -681,6 +685,13 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
 
   getUserFontDirectory(): string {
     return resolveUserFontDirectory(
+      this.app.vault.configDir,
+      this.manifest.id,
+    );
+  }
+
+  getLegacyUserFontDirectory(): string {
+    return resolveLegacyUserFontDirectory(
       this.manifest.dir,
       this.app.vault.configDir,
       this.manifest.id,
@@ -718,9 +729,14 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
         delete: (fontFace: FontFace) => boolean;
       };
       for (const font of this.settings.userFonts) {
-        const path = getUserFontFilePath(directory, font.fileName);
         try {
-          if (!(await adapter.exists(path))) {
+          const path = await findUserFontFilePath(
+            adapter,
+            directory,
+            this.getLegacyUserFontDirectory(),
+            font.fileName,
+          );
+          if (!path) {
             missing.push(font.name);
             continue;
           }
@@ -741,6 +757,23 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       new Notice(
         `字体文件暂时不可用：${names.join("、")}。设置仍会保留，文件恢复后可自动重新加载。`,
       );
+    }
+  }
+
+  private async migrateLegacyUserFonts(): Promise<void> {
+    try {
+      const result = await migrateLegacyUserFontDirectory(
+        this.app.vault.adapter,
+        this.getLegacyUserFontDirectory(),
+        this.getUserFontDirectory(),
+      );
+      if (result.failures.length > 0) {
+        console.warn("中文写作排版：部分旧字体文件迁移失败", result.failures);
+        new Notice("部分旧字体未能迁移；字体仍会从旧位置加载，请备份后重试");
+      }
+    } catch (error) {
+      console.warn("中文写作排版：旧字体目录迁移失败", error);
+      new Notice("旧字体目录暂未迁移；字体仍会从旧位置加载");
     }
   }
 
@@ -847,7 +880,12 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     if (!font) return false;
 
     const adapter = this.app.vault.adapter;
-    const path = getUserFontFilePath(this.getUserFontDirectory(), font.fileName);
+    const path = await findUserFontFilePath(
+      adapter,
+      this.getUserFontDirectory(),
+      this.getLegacyUserFontDirectory(),
+      font.fileName,
+    ) ?? getUserFontFilePath(this.getUserFontDirectory(), font.fileName);
     let binary: ArrayBuffer | undefined;
     try {
       if (await adapter.exists(path)) binary = await adapter.readBinary(path);

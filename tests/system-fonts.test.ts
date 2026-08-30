@@ -3,6 +3,7 @@ import {
   extractFontFamilyNames,
   fontNameToCssFamily,
   getPrimaryFontName,
+  getSystemFontDisplayName,
 } from "../src/system-fonts";
 
 describe("single-font helpers", () => {
@@ -19,5 +20,13 @@ describe("single-font helpers", () => {
   it("treats inherit and generic-only values as having no selected font", () => {
     expect(extractFontFamilyNames("inherit")).toEqual([]);
     expect(getPrimaryFontName("inherit")).toBe("跟随正文");
+  });
+
+  it("turns technical font aliases into honest user-facing names", () => {
+    expect(getSystemFontDisplayName("Apple system")).toBe("系统默认字体");
+    expect(getSystemFontDisplayName("-apple-system")).toBe("系统默认字体");
+    expect(getSystemFontDisplayName("SimSun")).toBe("宋体（SimSun）");
+    expect(getSystemFontDisplayName("思源宋体")).toBe("优先思源宋体");
+    expect(getSystemFontDisplayName("Unknown Font")).toBe("Unknown Font");
   });
 });

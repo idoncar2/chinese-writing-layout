@@ -1,6 +1,6 @@
 import { App, Modal, Setting, setIcon } from "obsidian";
 import { findAvailableQuickFont, QUICK_FONT_OPTIONS } from "./quick-fonts";
-import { fontNameToCssFamily } from "./system-fonts";
+import { fontNameToCssFamily, getSystemFontDisplayName } from "./system-fonts";
 import type { FontSelection, UserFont } from "./types";
 
 export interface BuiltinFontOption {
@@ -17,7 +17,7 @@ export function getFontSelectionDisplayName(
   userFonts: readonly UserFont[] = [],
   builtinFonts: readonly BuiltinFontOption[] = BUILTIN_FONT_OPTIONS,
 ): string {
-  if (selection.source === "obsidian") return "默认";
+  if (selection.source === "obsidian") return "跟随 Obsidian";
   if (selection.source === "inherit") return "跟随正文";
   if (selection.source === "builtin") {
     return builtinFonts.find((font) => font.id === selection.id)?.name ?? selection.id;
@@ -25,7 +25,7 @@ export function getFontSelectionDisplayName(
   if (selection.source === "user") {
     return userFonts.find((font) => font.id === selection.id)?.name ?? selection.id;
   }
-  return selection.id;
+  return getSystemFontDisplayName(selection.id);
 }
 
 export function getFontSelectionPreviewFamily(
@@ -244,7 +244,7 @@ export class FontPickerModal extends Modal {
         list,
         selection,
         availableFont
-          ? "当前设备可用"
+          ? `当前设备候选：${getSystemFontDisplayName(availableFont)}`
           : "当前设备不可用；可导入字体",
         !availableFont,
         option.label,
@@ -255,8 +255,12 @@ export class FontPickerModal extends Modal {
   private renderUserFonts(root: HTMLElement): void {
     const section = root.createDiv({ cls: "cw-font-source-section" });
     const header = section.createDiv({ cls: "cw-font-source-header cw-font-user-header" });
-    header.createEl("h3", { text: "我的字体" });
-    header.createSpan({ text: "保存在本插件目录中", cls: "cw-font-source-description" });
+    const heading = header.createDiv({ cls: "cw-font-user-heading" });
+    heading.createEl("h3", { text: "我的字体" });
+    heading.createSpan({
+      text: "独立保存，不受插件更新影响",
+      cls: "cw-font-source-description",
+    });
     const fileInput = section.createEl("input", {
       type: "file",
       cls: "cw-font-file-input",
@@ -307,7 +311,13 @@ export class FontPickerModal extends Modal {
 
   private renderUserFontChoice(list: HTMLElement, font: UserFont): void {
     const unavailable = !this.isUserFontAvailable(font.id);
-    const row = list.createDiv({ cls: "cw-font-user-row" });
+    const selected = this.areSameSelection(
+      { source: "user", id: font.id },
+      this.selectedSelection,
+    );
+    const row = list.createDiv({
+      cls: `cw-font-user-row${selected ? " is-selected" : ""}`,
+    });
     this.renderFontChoice(
       row,
       { source: "user", id: font.id },
@@ -354,7 +364,7 @@ export class FontPickerModal extends Modal {
     const setting = new Setting(section)
       .setClass("cw-font-system-setting")
       .setName("使用系统字体名称")
-      .setDesc("仅在当前设备已安装该字体时有效。")
+      .setDesc("这里填写的是优先字体；当前设备未安装时会自动回退。")
       .addText((text) => {
         inputEl = text.inputEl;
         text
@@ -414,7 +424,13 @@ export class FontPickerModal extends Modal {
       cls: "cw-font-choice-preview",
     });
     preview.style.fontFamily = getFontSelectionPreviewFamily(selection, this.userFonts);
-    if (note) content.createDiv({ text: note, cls: "cw-font-choice-note" });
+    if (note) {
+      content.createDiv({
+        text: note,
+        cls: "cw-font-choice-note",
+        attr: { title: note },
+      });
+    }
     button.addEventListener("click", () => this.selectFont(selection));
   }
 

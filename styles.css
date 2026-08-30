@@ -1841,10 +1841,20 @@ body.cw-focus-mode
   text-align: end;
 }
 
+.cw-font-user-heading {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.cw-font-user-heading .cw-font-source-description {
+  text-align: start;
+}
+
 .cw-font-import-button {
   flex: 0 0 auto;
-  min-height: 40px;
-  padding: 7px 10px;
+  min-height: 36px;
+  padding: 5px 10px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 7px;
   background: var(--background-primary);
@@ -2017,18 +2027,64 @@ body.cw-focus-mode
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: stretch;
-  gap: 6px;
+  align-items: center;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  background: var(--background-primary);
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.cw-font-user-row:hover,
+.cw-font-user-row.is-selected {
+  border-color: color-mix(
+    in srgb,
+    var(--cw-panel-accent) 42%,
+    var(--background-modifier-border)
+  );
+}
+
+.cw-font-user-row.is-selected {
+  background: color-mix(
+    in srgb,
+    var(--cw-panel-accent) 7%,
+    var(--background-primary)
+  );
 }
 
 .cw-font-user-row .cw-font-choice {
   width: auto;
+  min-height: 68px;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.cw-font-user-row .cw-font-choice:hover:not(:disabled),
+.cw-font-user-row .cw-font-choice.is-selected {
+  border-color: transparent;
+  background: transparent;
+}
+
+.cw-font-user-row .cw-font-choice:focus-visible {
+  outline-offset: -3px;
+}
+
+.cw-font-user-row .cw-font-choice-note {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .cw-font-user-actions {
   display: flex;
   align-items: center;
   gap: 4px;
+  align-self: stretch;
+  padding: 0 6px;
+  border-inline-start: 1px solid var(--background-modifier-border);
 }
 
 .cw-font-user-actions button {
@@ -2039,19 +2095,15 @@ body.cw-focus-mode
   min-height: 44px;
   place-items: center;
   padding: 0;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-primary);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
   box-shadow: none;
   color: var(--text-muted);
 }
 
 .cw-font-user-actions button:hover {
-  border-color: color-mix(
-    in srgb,
-    var(--cw-panel-accent) 42%,
-    var(--background-modifier-border)
-  );
+  background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
@@ -2115,6 +2167,7 @@ body.cw-focus-mode
   .cw-font-user-header {
     align-items: center;
     flex-direction: row;
+    gap: 8px;
   }
 
   .cw-font-source-description {
@@ -2135,12 +2188,8 @@ body.cw-focus-mode
     grid-template-columns: 1fr;
   }
 
-  .cw-font-user-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .cw-font-user-actions {
-    justify-content: flex-end;
+    padding-inline: 4px;
   }
 }
 

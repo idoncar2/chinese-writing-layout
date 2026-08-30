@@ -25,13 +25,11 @@ describe("user font files", () => {
     });
   });
 
-  it("creates a unique internal id and resolves the plugin-owned font path", () => {
+  it("creates a unique internal id and keeps user fonts outside the install directory", () => {
     expect(createUserFontId(["cw-user-demo"], "demo")).toBe("cw-user-demo-2");
-    expect(getUserFontDirectory(".obsidian/plugins/chinese-writing-layout", ".obsidian", "chinese-writing-layout"))
-      .toBe(".obsidian/plugins/chinese-writing-layout/fonts");
-    expect(getUserFontDirectory(undefined, ".obsidian", "chinese-writing-layout"))
-      .toBe(".obsidian/plugins/chinese-writing-layout/fonts");
-    expect(getUserFontFilePath(".obsidian/plugins/chinese-writing-layout/fonts", "cw-user-test.ttf"))
-      .toBe(".obsidian/plugins/chinese-writing-layout/fonts/cw-user-test.ttf");
+    expect(getUserFontDirectory(".obsidian", "chinese-writing-layout"))
+      .toBe(".obsidian/chinese-writing-layout/fonts");
+    expect(getUserFontFilePath(".obsidian/chinese-writing-layout/fonts", "cw-user-test.ttf"))
+      .toBe(".obsidian/chinese-writing-layout/fonts/cw-user-test.ttf");
   });
 });

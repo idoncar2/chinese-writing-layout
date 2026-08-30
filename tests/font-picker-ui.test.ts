@@ -35,7 +35,7 @@ describe("font picker presentation and interaction", () => {
   it("provides source-choice states and system-font input with accessible labels", () => {
     expect(source).toContain("aria-checked");
     expect(source).toContain("使用系统字体名称");
-    expect(source).toContain("仅在当前设备已安装该字体时有效");
+    expect(source).toContain("当前设备未安装时会自动回退");
     expect(source).toContain("字体暂不可用");
     expect(styles).toContain(".cw-font-choice");
     expect(styles).toContain(".cw-font-source-section");
@@ -71,6 +71,12 @@ describe("font picker presentation and interaction", () => {
     expect(mainSource).not.toContain("adapter.getResourcePath(path)");
   });
 
+  it("migrates legacy font files before loading and keeps a fallback during migration", () => {
+    expect(mainSource).toContain("await this.migrateLegacyUserFonts();");
+    expect(mainSource).toContain("migrateLegacyUserFontDirectory");
+    expect(mainSource).toContain("findUserFontFilePath");
+  });
+
   it("selects an imported font immediately so mobile does not keep the old system fallback", () => {
     expect(source).toContain("importFont?: (file: File) => Promise<UserFont | null>;");
     expect(source).toContain('this.selectFont({ source: "user", id: imported.id });');
@@ -97,5 +103,27 @@ describe("font picker presentation and interaction", () => {
     expect(styles).toMatch(
       /\.cw-font-quick-list \.cw-font-choice-note\s*\{[^}]*min-height:/s,
     );
+  });
+
+  it("presents imported fonts as compact integrated cards", () => {
+    expect(source).toContain("cw-font-user-heading");
+    expect(source).toContain("独立保存，不受插件更新影响");
+    expect(source).toContain('attr: { title: note }');
+    expect(styles).toMatch(
+      /\.cw-font-user-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto[^}]*border:\s*1px solid/s,
+    );
+    expect(styles).toMatch(
+      /\.cw-font-user-row \.cw-font-choice-note\s*\{[^}]*white-space:\s*nowrap[^}]*text-overflow:\s*ellipsis/s,
+    );
+    expect(styles).toMatch(
+      /\.cw-font-user-actions button\s*\{[^}]*min-width:\s*44px[^}]*min-height:\s*44px/s,
+    );
+  });
+
+  it("explains system font candidates without claiming a fallback is the rendered font", () => {
+    expect(source).toContain("getSystemFontDisplayName");
+    expect(source).toContain("当前设备候选：");
+    expect(source).toContain("这里填写的是优先字体；当前设备未安装时会自动回退。");
+    expect(source).toContain('if (selection.source === "obsidian") return "跟随 Obsidian";');
   });
 });
