@@ -60,4 +60,15 @@ describe("reader mode UI integration", () => {
     expect(styles).toContain("safe-area-inset-top");
     expect(styles).not.toContain(".cw-reader-view.cw-novel-enabled");
   });
+
+  it("keeps staged reader code compatible with the declared Obsidian API and CSS audit", () => {
+    const settings = readFileSync(resolve("src/reader/reader-settings-modal.ts"), "utf8");
+    const view = readFileSync(resolve("src/reader/reader-view.ts"), "utf8");
+
+    expect(settings).not.toContain(".setDisplayFormat(");
+    expect(settings).not.toMatch(/\.style(?:\.|\[)/);
+    expect(view).not.toMatch(/\.style(?:\.|\[)/);
+    expect(settings).toContain("setCssStyles(");
+    expect(view).toContain("setCssProps(");
+  });
 });

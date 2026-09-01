@@ -46,7 +46,6 @@ export class ReaderSettingsModal extends Modal {
       14,
       30,
       1,
-      (value) => `${value}px`,
     );
     this.renderSliderSetting(
       "行距",
@@ -55,7 +54,6 @@ export class ReaderSettingsModal extends Modal {
       1.4,
       2.6,
       0.1,
-      (value) => `${value.toFixed(1)} 倍`,
     );
     this.renderSliderSetting(
       "段距",
@@ -64,7 +62,6 @@ export class ReaderSettingsModal extends Modal {
       0,
       2,
       0.1,
-      (value) => `${value.toFixed(1)}em`,
     );
     this.renderSliderSetting(
       "正文宽度",
@@ -73,7 +70,6 @@ export class ReaderSettingsModal extends Modal {
       520,
       960,
       1,
-      (value) => `${value}px`,
     );
     this.renderSliderSetting(
       "页面边距",
@@ -82,7 +78,6 @@ export class ReaderSettingsModal extends Modal {
       16,
       80,
       1,
-      (value) => `${value}px`,
     );
     new Setting(this.contentEl)
       .setName("阅读背景")
@@ -127,10 +122,14 @@ export class ReaderSettingsModal extends Modal {
         });
     });
     buttonEl?.classList.add("cw-reader-font-button");
-    if (buttonEl) buttonEl.style.fontFamily = getFontSelectionPreviewFamily(
-      this.settings.font,
-      this.host.getReaderUserFonts(),
-    );
+    if (buttonEl) {
+      buttonEl.setCssStyles({
+        fontFamily: getFontSelectionPreviewFamily(
+          this.settings.font,
+          this.host.getReaderUserFonts(),
+        ),
+      });
+    }
   }
 
   private renderSliderSetting(
@@ -140,7 +139,6 @@ export class ReaderSettingsModal extends Modal {
     minimum: number,
     maximum: number,
     step: number,
-    format: (value: number) => string,
   ): void {
     new Setting(this.contentEl)
       .setName(name)
@@ -150,7 +148,6 @@ export class ReaderSettingsModal extends Modal {
           .setLimits(minimum, maximum, step)
           .setInstant(true)
           .setValue(this.settings[key])
-          .setDisplayFormat(format)
           .onChange((value) => this.updateSettings({ [key]: value }));
       });
   }
