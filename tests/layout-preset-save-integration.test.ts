@@ -36,6 +36,22 @@ describe("layout preset save integration", () => {
     expect(method).toContain("this.refreshWritingPanels();");
   });
 
+  it("treats a selected saved template snapshot as the global source of truth", () => {
+    const globalStart = source.indexOf("getGlobalLayoutSettings(): LayoutPresetValues");
+    const globalEnd = source.indexOf("getCurrentLayoutPresetId()", globalStart);
+    const globalMethod = source.slice(globalStart, globalEnd);
+    expect(globalMethod).toMatch(
+      /getLayoutPresetValues\(\s*this\.settings\.layoutPreset,\s*this\.settings\.customLayoutPresets,?\s*\)/,
+    );
+
+    const fileStart = source.indexOf("private getLayoutSettingsForFile(");
+    const fileEnd = source.indexOf("private getRecommendedLayoutSettings", fileStart);
+    const fileMethod = source.slice(fileStart, fileEnd);
+    expect(fileMethod).toMatch(
+      /getLayoutPresetValues\(\s*this\.settings\.layoutPreset,\s*this\.settings\.customLayoutPresets,?\s*\)/,
+    );
+  });
+
   it("uses the computed Obsidian font baseline before the plugin default", () => {
     const start = source.indexOf("private captureObsidianLayoutValues(");
     const end = source.indexOf("private captureObsidianRenderedContentWidth(", start);

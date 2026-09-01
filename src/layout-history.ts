@@ -12,6 +12,7 @@ export type LayoutHistorySnapshot =
 export interface GlobalLayoutHistorySnapshot {
   target: { kind: "global" };
   layoutPreset: LayoutPresetId;
+  lastSelectedLayoutPreset?: LayoutPresetId;
   values: LayoutPresetValues;
   obsidianOverrides: LayoutPresetOverrides;
 }

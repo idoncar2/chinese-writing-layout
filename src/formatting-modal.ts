@@ -140,9 +140,7 @@ export class FormattingModal extends Modal {
     const introIcon = intro.createSpan({ cls: "cw-format-intro-icon" });
     setIcon(introIcon, "wand-sparkles");
     intro.createDiv({
-      text: this.editor.somethingSelected()
-        ? "检测到选区：本次只处理选中的文字。"
-        : "没有选中文字：本次将自动处理整篇笔记。",
+      text: "在这里设置一键排版的默认规则；保存后不会立即修改正文，请使用工作台或 Ribbon 的一键排版按钮执行。",
       cls: "cw-format-intro-text",
     });
 
@@ -167,18 +165,12 @@ export class FormattingModal extends Modal {
     resetButton.addEventListener("click", () => this.selectPreset("novel"));
     const cancelButton = createButton(footer, "取消");
     cancelButton.addEventListener("click", () => this.close());
-    const applyButton = createButton(
-      footer,
-      this.editor.somethingSelected() ? "排版选区" : "排版整篇",
-      "mod-cta",
-    );
-    applyButton.addEventListener("click", () => {
+    const saveButton = createButton(footer, "保存设置", "mod-cta");
+    saveButton.addEventListener("click", () => {
       void this.plugin
-        .applyFormatting(
-          this.editor,
+        .saveFormattingSettings(
           this.rules,
           this.preset,
-          true,
           this.ruleOrder,
           this.markdownFormatting,
         )

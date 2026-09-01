@@ -11,6 +11,7 @@ import {
   normalizeLayoutPresetId,
   normalizeLayoutPresetOverrides,
   normalizeLayoutPresetValues,
+  resolveLayoutPresetToRestore,
 } from "../src/layout-presets";
 import {
   DEFAULT_SETTINGS,
@@ -214,11 +215,26 @@ describe("layout presets", () => {
     expect(values.contentWidthPx).toBe(704.5);
   });
 
-  it("keeps a saved template selected while its working values are edited", () => {
-    expect(getEditedLayoutPresetId("saved:mine")).toBe("saved:mine");
+  it("turns edited saved-template values into an explicit custom layout", () => {
+    expect(getEditedLayoutPresetId("saved:mine")).toBe("custom");
     expect(getEditedLayoutPresetId("obsidian")).toBe("obsidian");
     expect(getEditedLayoutPresetId("default")).toBe("custom");
     expect(getEditedLayoutPresetId("custom")).toBe("custom");
+  });
+
+  it("restores the previously selected template after editing becomes custom", () => {
+    const values = normalizeLayoutPresetValues({ fontSize: 22 });
+    const presets: CustomLayoutPreset[] = [{
+      id: "mine",
+      name: "我的模板",
+      values,
+    }];
+
+    expect(resolveLayoutPresetToRestore("custom", "saved:mine", presets)).toBe("saved:mine");
+    expect(resolveLayoutPresetToRestore("custom", "default", presets)).toBe("default");
+    expect(resolveLayoutPresetToRestore("custom", undefined, presets)).toBeNull();
+    expect(resolveLayoutPresetToRestore("custom", "saved:missing", presets)).toBeNull();
+    expect(resolveLayoutPresetToRestore("saved:mine", undefined, presets)).toBe("saved:mine");
   });
 
   it("keeps only explicitly changed values for Follow Obsidian overrides", () => {

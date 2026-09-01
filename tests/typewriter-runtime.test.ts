@@ -2,7 +2,52 @@ import { describe, expect, it } from "vitest";
 import {
   getEffectiveTypewriterMode,
   planTypewriterToggle,
+  normalizeTypewriterScopeSetting,
+  resolveManualTypewriterMode,
+  updateManualTypewriterState,
 } from "../src/typewriter-runtime";
+
+describe("manual typewriter scope", () => {
+  it("migrates the legacy manual setting into the new workbench scope", () => {
+    expect(normalizeTypewriterScopeSetting({ typewriterMode: true })).toBe(true);
+    expect(normalizeTypewriterScopeSetting({ typewriterMode: false })).toBe(false);
+    expect(normalizeTypewriterScopeSetting({
+      typewriterMode: true,
+      typewriterModeAppliesToAllDocuments: false,
+    })).toBe(false);
+  });
+  it("uses the current document state when global scope is disabled", () => {
+    expect(resolveManualTypewriterMode({
+      appliesToAllDocuments: false,
+      globalEnabled: true,
+      documentEnabled: false,
+    })).toBe(false);
+  });
+
+  it("uses the shared state when global scope is enabled", () => {
+    expect(resolveManualTypewriterMode({
+      appliesToAllDocuments: true,
+      globalEnabled: true,
+      documentEnabled: false,
+    })).toBe(true);
+  });
+
+  it("updates only the current document in document scope", () => {
+    expect(updateManualTypewriterState({
+      appliesToAllDocuments: false,
+      globalEnabled: true,
+      documentEnabled: false,
+    }, true)).toEqual({ globalEnabled: true, documentEnabled: true });
+  });
+
+  it("updates only the shared state in global scope", () => {
+    expect(updateManualTypewriterState({
+      appliesToAllDocuments: true,
+      globalEnabled: false,
+      documentEnabled: true,
+    }, true)).toEqual({ globalEnabled: true, documentEnabled: true });
+  });
+});
 
 describe("automatic typewriter runtime behavior", () => {
   it("adds an automatic runtime layer without changing the manual setting", () => {

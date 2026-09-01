@@ -141,11 +141,13 @@ export function applySavedLayoutPresetSnapshot(
   if (documentLayout) {
     documentLayout.values = { ...values };
     documentLayout.layoutPreset = presetId;
+    delete documentLayout.lastSelectedLayoutPreset;
     return;
   }
   Object.assign(settings, values);
   if (values.contentWidthPx === undefined) delete settings.contentWidthPx;
   settings.layoutPreset = presetId;
+  delete settings.lastSelectedLayoutPreset;
 }
 
 /**
@@ -288,12 +290,38 @@ export function normalizeLayoutPresetId(
   return "custom";
 }
 
+export function normalizeOptionalLayoutPresetId(
+  value: unknown,
+  presets: readonly CustomLayoutPreset[],
+): LayoutPresetId | undefined {
+  const normalized = normalizeLayoutPresetId(value, presets);
+  return normalized === "custom" ? undefined : normalized;
+}
+
 /**
- * 推荐版式被修改后会成为未命名的自定义设置；跟随 Obsidian 继续记录字段覆盖；
- * 已保存模板则保持选中，等待用户明确执行“保存修改”后才覆盖模板快照。
+ * Resolve the template that the reset action should restore. A custom layout
+ * uses the remembered source template; named templates remain directly
+ * restorable. Deleted or malformed saved-template IDs are not actionable.
+ */
+export function resolveLayoutPresetToRestore(
+  currentPresetId: LayoutPresetId,
+  lastSelectedPresetId: LayoutPresetId | undefined,
+  presets: readonly CustomLayoutPreset[],
+): LayoutPresetId | null {
+  const candidate = currentPresetId === "custom"
+    ? lastSelectedPresetId
+    : currentPresetId;
+  const normalized = normalizeLayoutPresetId(candidate, presets);
+  return normalized === "custom" ? null : normalized;
+}
+
+/**
+ * 推荐版式或已保存模板被修改后都会成为未命名的自定义设置；
+ * 跟随 Obsidian 继续记录字段覆盖。这样模板 ID 始终代表完整快照，
+ * 不会与另一份工作值缓存悄悄分叉。
  */
 export function getEditedLayoutPresetId(presetId: LayoutPresetId): LayoutPresetId {
-  if (presetId === "obsidian" || presetId.startsWith("saved:")) return presetId;
+  if (presetId === "obsidian") return presetId;
   return "custom";
 }
 

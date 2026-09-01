@@ -19,6 +19,7 @@ import {
   getFontSelectionPreviewFamily,
 } from "./font-options";
 import { fontSelectionToLegacyFontFamily, type FontRole } from "./font-selection";
+import { READER_MODE_ENABLED } from "./reader/reader-constants";
 import {
   formatFontSize,
   formatLetterSpacing,
@@ -279,6 +280,7 @@ export class WritingPanelView extends ItemView {
   private panelTouchActive = false;
   private refreshPendingAfterTouch = false;
   private panelTouchFinishTimer?: number;
+  private layoutLocateTimer?: number;
 
   private rememberPanelScroll = (): void => {
     if (!this.restoringPanelScroll) {
@@ -301,6 +303,10 @@ export class WritingPanelView extends ItemView {
     if (this.panelTouchFinishTimer !== undefined) {
       window.clearTimeout(this.panelTouchFinishTimer);
       this.panelTouchFinishTimer = undefined;
+    }
+    if (this.layoutLocateTimer !== undefined) {
+      window.clearTimeout(this.layoutLocateTimer);
+      this.layoutLocateTimer = undefined;
     }
     this.panelTouchActive = true;
     this.cancelPendingScrollRestore();
@@ -372,6 +378,10 @@ export class WritingPanelView extends ItemView {
     if (this.panelTouchFinishTimer !== undefined) {
       window.clearTimeout(this.panelTouchFinishTimer);
       this.panelTouchFinishTimer = undefined;
+    }
+    if (this.layoutLocateTimer !== undefined) {
+      window.clearTimeout(this.layoutLocateTimer);
+      this.layoutLocateTimer = undefined;
     }
     this.panelTouchActive = false;
     this.refreshPendingAfterTouch = false;
@@ -470,6 +480,17 @@ export class WritingPanelView extends ItemView {
               : "当前跟随自动规则与全局默认。",
       cls: "cw-panel-note-help",
     });
+    const layoutSourceStatus = this.plugin.getCurrentLayoutSourceStatus();
+    const layoutSourceButton = noteCard.createEl("button", {
+      text: `版式来源：${layoutSourceStatus}`,
+      cls: "cw-panel-layout-source",
+      attr: {
+        type: "button",
+        "aria-label": `当前版式来源：${layoutSourceStatus}；点击前往版式微调`,
+        title: "点击前往版式微调",
+      },
+    });
+    layoutSourceButton.addEventListener("click", () => this.locateLayoutScope());
     if (documentWritingMode) {
       const followButton = noteCard.createEl("button", {
         text: "恢复跟随自动规则",
@@ -651,6 +672,27 @@ export class WritingPanelView extends ItemView {
     this.renderInterfaceAccentControls(section);
   }
 
+  private locateLayoutScope(): void {
+    const scope = this.contentEl.querySelector<HTMLElement>(".cw-panel-layout-scope");
+    const scopeToggle = this.contentEl.querySelector<HTMLInputElement>(".cw-panel-layout-scope input");
+    if (!scope || !scopeToggle) return;
+    this.cancelPendingScrollRestore();
+    const targetTop = this.contentEl.scrollTop
+      + scope.getBoundingClientRect().top
+      - this.contentEl.getBoundingClientRect().top
+      - 12;
+    this.contentEl.scrollTop = Math.max(0, targetTop);
+    this.panelScrollTop = this.contentEl.scrollTop;
+    scopeToggle.focus({ preventScroll: true });
+    scope.removeClass("is-located");
+    window.requestAnimationFrame(() => scope.addClass("is-located"));
+    if (this.layoutLocateTimer !== undefined) window.clearTimeout(this.layoutLocateTimer);
+    this.layoutLocateTimer = window.setTimeout(() => {
+      scope.removeClass("is-located");
+      this.layoutLocateTimer = undefined;
+    }, 1400);
+  }
+
   private renderHeadingCenteringControls(section: HTMLElement): void {
     const details = section.createEl("details", {
       cls: "cw-panel-font-help cw-panel-heading-centering",
@@ -730,27 +772,30 @@ export class WritingPanelView extends ItemView {
   private renderLayoutResetAction(section: HTMLElement): void {
     const isDocumentLayout = this.plugin.isCurrentDocumentLayoutEnabled()
       || Boolean(this.plugin.getCurrentAutoApplyRule());
+    const resetPresetId = this.plugin.getCurrentLayoutResetPresetId();
+    const resetPresetLabel = resetPresetId
+      ? this.plugin.getLayoutPresetLabel(resetPresetId)
+      : "上次选择的模板";
     const resetButton = section.createEl("button", {
       cls: "cw-panel-layout-reset",
       attr: {
         type: "button",
-        "aria-label": isDocumentLayout
-          ? "恢复当前笔记的推荐版式"
-          : "恢复全局推荐版式",
+        "aria-label": `恢复上次选择的模板：${resetPresetLabel}`,
       },
     });
+    resetButton.disabled = resetPresetId === null;
     const icon = resetButton.createSpan({ cls: "cw-panel-layout-reset-icon" });
     setIcon(icon, "rotate-ccw");
     const copy = resetButton.createSpan({ cls: "cw-panel-layout-reset-copy" });
-    copy.createSpan({ text: "恢复推荐版式", cls: "cw-panel-layout-reset-title" });
+    copy.createSpan({ text: "恢复上次选择的模板", cls: "cw-panel-layout-reset-title" });
     copy.createSpan({
-      text: isDocumentLayout
-        ? "恢复当前笔记为插件推荐的中文写作版式（非 Obsidian 原生默认）"
-        : "恢复全局为插件推荐的中文写作版式（非 Obsidian 原生默认）",
+      text: resetPresetId === null
+        ? "当前没有可恢复的上次选择模板"
+        : `${isDocumentLayout ? "当前笔记" : "全局"}恢复为“${resetPresetLabel}”的原始参数`,
       cls: "cw-panel-layout-reset-description",
     });
     resetButton.addEventListener("click", () => {
-      void this.plugin.resetLayoutSettings().then(() => this.refresh());
+      void this.plugin.resetCurrentLayoutPreset().then(() => this.refresh());
     });
   }
 
@@ -974,6 +1019,17 @@ export class WritingPanelView extends ItemView {
     }
 
     const grid = section.createDiv({ cls: "cw-panel-tool-grid" });
+    if (READER_MODE_ENABLED) {
+      this.addToolButton(
+        grid,
+        "book-open",
+        "阅读模式",
+        "读者视角检查正文",
+        false,
+        () => this.plugin.openReaderModeModal(),
+        !this.plugin.getWritingMarkdownView()?.file,
+      );
+    }
     this.addToolButton(
       grid,
       "align-center-vertical",
@@ -981,7 +1037,7 @@ export class WritingPanelView extends ItemView {
       "输入行居中",
       this.plugin.isTypewriterModeEnabled(),
       () => void this.plugin.toggleTypewriterMode(),
-      !isNovel,
+      !this.plugin.getWritingMarkdownView()?.file,
     );
     this.addToolButton(
       grid,
@@ -1052,21 +1108,56 @@ export class WritingPanelView extends ItemView {
   }
 
   private renderFormattingLauncher(container: HTMLElement): void {
-    const button = container.createEl("button", {
+    const launcher = container.createDiv({
       cls: "cw-panel-format-launcher",
-      attr: { type: "button" },
     });
-    const icon = button.createSpan({ cls: "cw-panel-format-icon" });
+    const primary = launcher.createEl("button", {
+      cls: "cw-panel-format-primary",
+      attr: {
+        type: "button",
+        "aria-label": "使用当前默认方案一键排版",
+        title: "使用当前默认方案一键排版",
+      },
+    });
+    const icon = primary.createSpan({ cls: "cw-panel-format-icon" });
     setIcon(icon, "wand-sparkles");
-    const copy = button.createSpan({ cls: "cw-panel-format-copy" });
+    const copy = primary.createSpan({ cls: "cw-panel-format-copy" });
     copy.createSpan({ text: "一键排版", cls: "cw-panel-format-title" });
     copy.createSpan({
-      text: "整理 Markdown 原文，可撤销",
+      text: "使用当前默认方案，支持撤销",
       cls: "cw-panel-format-description",
     });
-    const arrow = button.createSpan({ cls: "cw-panel-format-arrow" });
-    setIcon(arrow, "chevron-right");
-    button.addEventListener("click", () => this.plugin.openFormattingModal());
+    primary.addEventListener("click", () => {
+      primary.disabled = true;
+      void this.plugin.applySavedFormatting().finally(() => {
+        if (primary.isConnected) primary.disabled = false;
+      });
+    });
+
+    const actions = launcher.createDiv({ cls: "cw-panel-format-actions" });
+    const undoButton = actions.createEl("button", {
+      cls: "cw-panel-format-undo",
+      attr: {
+        type: "button",
+        "aria-label": "撤回上一步编辑",
+        title: "撤回上一步编辑",
+      },
+    });
+    const undoIcon = undoButton.createSpan();
+    setIcon(undoIcon, "undo-2");
+    undoButton.addEventListener("click", () => this.plugin.undoCurrentEditorChange());
+
+    const settingsButton = actions.createEl("button", {
+      cls: "cw-panel-format-settings",
+      attr: {
+        type: "button",
+        "aria-label": "设置一键排版方案",
+        title: "设置一键排版方案",
+      },
+    });
+    const settingsIcon = settingsButton.createSpan();
+    setIcon(settingsIcon, "settings");
+    settingsButton.addEventListener("click", () => this.plugin.openFormattingModal());
   }
 
   private addToolButton(

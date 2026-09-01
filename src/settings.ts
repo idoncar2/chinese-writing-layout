@@ -134,6 +134,17 @@ export class ChineseWritingSettingTab extends PluginSettingTab {
           }),
       );
 
+    new Setting(group)
+      .setName("显示一键排版 Ribbon 按钮")
+      .setDesc("在 Obsidian 左侧图标栏显示魔法棒按钮，点击后直接使用当前默认方案排版。")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.showQuickFormattingRibbon)
+          .onChange(async (value) => {
+            await this.plugin.setQuickFormattingRibbonVisible(value);
+          }),
+      );
+
     let customAccentSetting: Setting | undefined;
     new Setting(group)
       .setName("界面重点色")
@@ -369,8 +380,29 @@ export class ChineseWritingSettingTab extends PluginSettingTab {
     const section = this.createSettingsSection(
       container,
       "写作辅助",
-      "把编辑视图中的定位、提示与统计集中管理，不会修改正文。",
+      "集中管理编辑视图辅助和可选快捷操作；自动一键排版会修改正文并可撤销。",
     );
+
+    const formattingGroup = this.createSettingsGroup(section, "一键排版联动");
+    new Setting(formattingGroup)
+      .setName("默认一键排版方案")
+      .setDesc("打开默认排版规则、顺序和 Markdown 处理选项。")
+      .addButton((button) =>
+        button
+          .setButtonText("打开排版设置")
+          .onClick(() => this.plugin.openFormattingModal()),
+      );
+    new Setting(formattingGroup)
+      .setName("手动开启写作模式时自动一键排版")
+      .setDesc("仅在手动把当前笔记从关闭切换为开启时执行；自动规则和打开笔记不会触发。")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.autoFormatOnManualWritingMode)
+          .onChange(async (value) => {
+            this.plugin.settings.autoFormatOnManualWritingMode = value;
+            await this.plugin.saveAndApplySettings();
+          }),
+      );
 
     const typewriterGroup = this.createSettingsGroup(section, "打字机模式");
     typewriterGroup.createEl("p", {
@@ -403,13 +435,14 @@ export class ChineseWritingSettingTab extends PluginSettingTab {
           });
       });
     new Setting(typewriterGroup)
-      .setName("手动开启打字机模式")
-      .setDesc("开启后会记住状态，直到再次关闭；与自动启用相互独立。")
+      .setName("工作台打字机作用于所有文章")
+      .setDesc("开启后，在写作工坊中切换打字机模式会同步作用于所有文章；关闭后仅作用于当前文章。")
       .addToggle((toggle) =>
         toggle
-          .setValue(this.plugin.settings.typewriterMode)
+          .setValue(this.plugin.settings.typewriterModeAppliesToAllDocuments)
           .onChange(async (value) => {
-            await this.plugin.setManualTypewriterMode(value);
+            this.plugin.settings.typewriterModeAppliesToAllDocuments = value;
+            await this.plugin.saveAndApplySettings();
           }),
       );
 

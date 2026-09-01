@@ -519,7 +519,9 @@ export class FontPickerModal extends Modal {
   }
 
   private allowsBodyInheritance(): boolean {
-    return this.roleLabel !== "正文" && this.roleLabel !== "标题";
+    return this.roleLabel !== "正文"
+      && this.roleLabel !== "标题"
+      && this.roleLabel !== "阅读";
   }
 
   private areSameSelection(left: FontSelection, right: FontSelection): boolean {

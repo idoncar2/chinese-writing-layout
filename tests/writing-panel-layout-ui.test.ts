@@ -6,6 +6,36 @@ const source = readFileSync(resolve("src/writing-panel.ts"), "utf8");
 const styles = readFileSync(resolve("styles.css"), "utf8");
 
 describe("writing panel layout font UI", () => {
+  it("shows a clickable layout source below the current note and locates the single layout scope control", () => {
+    expect(source).toContain("getCurrentLayoutSourceStatus");
+    expect(source).toContain("cw-panel-layout-source");
+    expect(source).toContain('text: `版式来源：${layoutSourceStatus}`');
+    expect(source).not.toContain("cw-panel-layout-source-arrow");
+    expect(source).not.toContain("cw-panel-layout-source-label");
+    expect(source).toContain('"aria-label": `当前版式来源：${layoutSourceStatus}；点击前往版式微调`');
+    expect(source).toContain('querySelector<HTMLElement>(".cw-panel-layout-scope")');
+    expect(source).toContain('querySelector<HTMLInputElement>(".cw-panel-layout-scope input")');
+    expect(source).toContain("const targetTop = this.contentEl.scrollTop");
+    expect(source).toContain("scope.getBoundingClientRect().top");
+    expect(source).toContain("this.contentEl.getBoundingClientRect().top");
+    expect(source).toContain("this.contentEl.scrollTop = Math.max(0, targetTop);");
+    expect(source).toContain("this.panelScrollTop = this.contentEl.scrollTop;");
+    expect(source).not.toContain('scope.scrollIntoView({ behavior: "smooth"');
+    expect(source).toContain('scope.addClass("is-located")');
+    expect(styles).toContain(".cw-panel-layout-source:focus-visible");
+    expect(styles).toMatch(/\.cw-panel-layout-source\s*\{[^}]*appearance:\s*none;[^}]*background:\s*none;/s);
+    expect(styles).toMatch(/\.cw-panel-layout-source\s*\{[^}]*border:\s*0\s*!important;[^}]*box-shadow:\s*none\s*!important;/s);
+    expect(styles).toMatch(/\.cw-panel-note-card\s*\{[^}]*border:\s*0;/s);
+    expect(styles).toContain(".cw-panel-layout-scope.is-located");
+    expect(styles).toContain("prefers-reduced-motion: reduce");
+  });
+
+  it("keeps the typewriter tool available outside writing mode", () => {
+    expect(source).toMatch(
+      /"打字机",\s*"输入行居中",\s*this\.plugin\.isTypewriterModeEnabled\(\),\s*\(\) => void this\.plugin\.toggleTypewriterMode\(\),\s*!this\.plugin\.getWritingMarkdownView\(\)\?\.file,/s,
+    );
+  });
+
   it("shows the Obsidian baseline font and renders font rows from the current layout snapshot", () => {
     expect(source).toContain("字体：${getObsidianFontDisplayName(obsidianBaseline.fontFamily)}");
     expect(source).toContain("字距：${formatLetterSpacing(obsidianBaseline.letterSpacing)}");

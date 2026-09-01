@@ -16,6 +16,18 @@ describe("formatting modal compact controls", () => {
     expect(styles).not.toContain(".cw-format-preset-management {\n  border-top:");
   });
 
+  it("saves the selected defaults without formatting the open document", () => {
+    expect(source).toContain('createButton(footer, "保存设置", "mod-cta")');
+    expect(source).toMatch(/this\.plugin\s*\.saveFormattingSettings\(/);
+    const footerStart = source.indexOf('const footer = this.contentEl.createDiv');
+    const footerEnd = source.indexOf("onClose(): void", footerStart);
+    const footerSource = source.slice(footerStart, footerEnd);
+    expect(footerSource).not.toContain("this.plugin.applyFormatting(");
+    expect(footerSource).not.toContain('"排版整篇"');
+    expect(footerSource).not.toContain('"排版选区"');
+    expect(source).toContain("保存后不会立即修改正文");
+  });
+
   it("uses semantic checkbox options for multi-select rules", () => {
     expect(source).toContain("createCheckOption");
     expect(source).toContain('createEl("label"');

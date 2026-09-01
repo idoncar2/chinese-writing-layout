@@ -51,6 +51,14 @@ export interface NormalizedWritingModeSettings {
   changed: boolean;
 }
 
+export function shouldAutoFormatOnManualWritingModeTransition(
+  wasEnabled: boolean,
+  isEnabled: boolean,
+  settingEnabled: boolean,
+): boolean {
+  return settingEnabled && !wasEnabled && isEnabled;
+}
+
 function normalizeTag(value: unknown): string {
   if (typeof value !== "string") return "";
   const tag = value.trim().replace(/^#+/u, "");

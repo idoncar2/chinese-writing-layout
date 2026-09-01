@@ -1,12 +1,13 @@
 {
   "name": "chinese-writing-layout",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Non-destructive Chinese novel typography for Obsidian.",
   "main": "main.js",
   "type": "module",
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
+    "deploy:local": "npm run build && node scripts/deploy-local.mjs",
     "test": "vitest run"
   },
   "keywords": [

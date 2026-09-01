@@ -1,7 +1,7 @@
 {
   "id": "chinese-writing-layout",
   "name": "Chinese Writing Layout",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "minAppVersion": "1.8.0",
   "description": "为中文长文提供多主题纸张、自定义背景、高级文本整理和多格式导出.",
   "author": "idoncar2",

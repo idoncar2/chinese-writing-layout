@@ -41,6 +41,13 @@ import {
   type LongImagePlan,
 } from "./image-export";
 import {
+  createWritingLayoutModuleApi,
+  registerWritingModule,
+  type WritingContextSummary,
+  type WritingToolsGlobal,
+} from "./integration/module-api";
+import { toWorkspaceApplyRules, type WorkspaceRulesApi } from "./integration/workspace-rules";
+import {
   applySavedLayoutPresetSnapshot,
   captureLayoutPreset,
   clearFollowObsidianFontOverrides,
@@ -49,8 +56,10 @@ import {
   hasLayoutPresetOverrides,
   normalizeCssClassLayoutRules,
   normalizeLayoutPresetId,
+  normalizeOptionalLayoutPresetId,
   normalizeLayoutPresetOverrides,
   normalizeLayoutPresetValues,
+  resolveLayoutPresetToRestore,
 } from "./layout-presets";
 import {
   cloneLayoutHistorySnapshot,
@@ -61,6 +70,7 @@ import {
   type LayoutChangeRecord,
   type LayoutHistorySnapshot,
 } from "./layout-history";
+import { formatLayoutSourceStatus } from "./layout-source-status";
 import {
   getAvailableLocalExportPath,
   getAvailableLocalImageExportTarget,
@@ -80,6 +90,15 @@ import {
   type RenderedContentWidth,
 } from "./obsidian-content-width";
 import { syncReadingProseLines } from "./reading-view-lines";
+import {
+  normalizeReaderSettings,
+  READER_MODE_ENABLED,
+  READER_VIEW_TYPE,
+} from "./reader/reader-constants";
+import { ReaderModeModal } from "./reader/reader-mode-modal";
+import { ReaderSettingsModal } from "./reader/reader-settings-modal";
+import { normalizeReaderPositions } from "./reader/reader-position";
+import { ReaderView } from "./reader/reader-view";
 import { resolveRecommendedFontName } from "./quick-fonts";
 import { ChineseWritingSettingTab } from "./settings";
 import { SettingsSaveQueue } from "./settings-save-queue";
@@ -130,6 +149,9 @@ import {
   type LayoutPresetId,
   type LayoutPresetOverrides,
   type LayoutPresetValues,
+  type ReaderMode,
+  type ReaderPosition,
+  type ReaderSettings,
   type UserFont,
   normalizeTypewriterCursorPosition,
   normalizeMarkdownFormattingOptions,
@@ -141,7 +163,10 @@ import {
 } from "./types";
 import {
   getEffectiveTypewriterMode,
+  normalizeTypewriterScopeSetting,
   planTypewriterToggle,
+  resolveManualTypewriterMode,
+  updateManualTypewriterState,
   type TypewriterRuntimeState,
 } from "./typewriter-runtime";
 import {
@@ -166,6 +191,7 @@ import {
 import {
   normalizeWritingModeSettings,
   resolveWritingContext,
+  shouldAutoFormatOnManualWritingModeTransition,
   type ResolvedWritingContext,
   type WritingFileFacts,
 } from "./writing-mode";
@@ -237,6 +263,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   private pendingLayoutHistoryTargetKey?: string;
   private isRestoringLayoutHistory = false;
   private statusBarItem?: HTMLElement;
+  private quickFormattingRibbon?: HTMLElement;
   private statusUpdateTimer?: number;
   private startupMarkdownSyncTimer?: number;
   private lastMarkdownLeaf?: WorkspaceLeaf;
@@ -250,11 +277,15 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   private appliedTypewriterMode = false;
   private autoTypewriterSuppressedPath?: string;
   private lastAutoTypewriterWritingPath?: string;
+  private unregisterModule?: () => void;
+  private readonly writingContextListeners = new Set<() => void>();
+  private readonly workspaceRuleListeners = new Set<() => void>();
 
   async onload(): Promise<void> {
     await this.loadSettings();
     await this.migrateLegacyUserFonts();
     await this.loadUserFonts();
+    this.registerModuleApi();
     this.addSettingTab(new ChineseWritingSettingTab(this.app, this));
     this.registerEditorExtension(createWritingEditorExtension());
     this.registerMarkdownPostProcessor((element, context) => {
@@ -268,6 +299,12 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       WRITING_PANEL_VIEW_TYPE,
       (leaf) => new WritingPanelView(leaf, this),
     );
+    if (READER_MODE_ENABLED) {
+      this.registerView(
+        READER_VIEW_TYPE,
+        (leaf) => new ReaderView(leaf, this),
+      );
+    }
 
     this.addCommand({
       id: "toggle-novel-layout-current-note",
@@ -302,6 +339,20 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       name: "打开写作排版面板",
       callback: () => void this.openWritingPanel(),
     });
+
+    if (READER_MODE_ENABLED) {
+      this.addCommand({
+        id: "open-desktop-reader",
+        name: "打开桌面阅读",
+        callback: () => void this.openReader("desktop"),
+      });
+
+      this.addCommand({
+        id: "open-phone-reader",
+        name: "打开手机预览",
+        callback: () => void this.openReader("phone"),
+      });
+    }
 
     this.addCommand({
       id: "toggle-interface-mode",
@@ -381,6 +432,8 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       },
     );
 
+    this.syncQuickFormattingRibbonVisibility();
+
     this.statusBarItem = this.addStatusBarItem();
     this.statusBarItem.addClass("cw-status-bar");
     this.statusBarItem.setAttribute("aria-label", "中文写作排版统计");
@@ -397,7 +450,9 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
         if (leaf?.view instanceof MarkdownView) this.lastMarkdownLeaf = leaf;
         this.syncAllViews();
         this.scheduleStatusUpdate();
-        this.refreshWritingPanels();
+        if (!(leaf?.view instanceof WritingPanelView)) {
+          this.refreshWritingPanels();
+        }
       }),
     );
     this.registerEvent(
@@ -487,6 +542,16 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
             oldPath,
             file.path,
           );
+          this.settings.documentTypewriterModes = remapPathKeys(
+            this.settings.documentTypewriterModes,
+            oldPath,
+            file.path,
+          );
+          this.settings.readerPositions = remapPathKeys(
+            this.settings.readerPositions,
+            oldPath,
+            file.path,
+          );
         }
         if (file instanceof TFolder) {
           for (const rule of this.settings.autoApplyRules) {
@@ -514,6 +579,14 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
             this.settings.documentWritingModes,
             file.path,
           );
+          this.settings.documentTypewriterModes = deletePathKeys(
+            this.settings.documentTypewriterModes,
+            file.path,
+          );
+          this.settings.readerPositions = deletePathKeys(
+            this.settings.readerPositions,
+            file.path,
+          );
           void this.enqueueSettingsSave();
         }
         this.syncAllViews();
@@ -536,6 +609,9 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.unregisterModule?.();
+    this.writingContextListeners.clear();
+    this.workspaceRuleListeners.clear();
     if (this.statusUpdateTimer !== undefined) {
       window.clearTimeout(this.statusUpdateTimer);
     }
@@ -597,14 +673,23 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     const documentLayouts = Object.fromEntries(
       Object.entries(stored?.documentLayouts ?? {}).map(([path, layout]) => [
         path,
-        {
-          layoutPreset: normalizeLayoutPresetId(
-            layout?.layoutPreset ?? "custom",
+        (() => {
+          const lastSelectedLayoutPreset = normalizeOptionalLayoutPresetId(
+            layout?.lastSelectedLayoutPreset,
             customLayoutPresets,
-          ),
-          values: normalizeLayoutPresetValues(layout?.values),
-          obsidianOverrides: normalizeLayoutPresetOverrides(layout?.obsidianOverrides),
-        } satisfies DocumentLayoutSettings,
+          );
+          return {
+            layoutPreset: normalizeLayoutPresetId(
+              layout?.layoutPreset ?? "custom",
+              customLayoutPresets,
+            ),
+            values: normalizeLayoutPresetValues(layout?.values),
+            obsidianOverrides: normalizeLayoutPresetOverrides(layout?.obsidianOverrides),
+            ...(lastSelectedLayoutPreset === undefined
+              ? {}
+              : { lastSelectedLayoutPreset }),
+          } satisfies DocumentLayoutSettings;
+        })(),
       ]),
     );
     const cssClassLayoutRules = normalizeCssClassLayoutRules(
@@ -615,6 +700,12 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       stored,
       customLayoutPresets,
     );
+    const readerSettings = normalizeReaderSettings(stored?.readerSettings);
+    const readerPositions = normalizeReaderPositions(stored?.readerPositions);
+    const readerSettingsChanged = storedForSettings !== null
+      && JSON.stringify(storedForSettings.readerSettings) !== JSON.stringify(readerSettings);
+    const readerPositionsChanged = storedForSettings !== null
+      && JSON.stringify(storedForSettings.readerPositions) !== JSON.stringify(readerPositions);
     const normalizedStoredLayout = normalizeLayoutPresetValues(normalizedStoredFontValues);
     const fontFamily = normalizedStoredLayout.fontFamily;
     const legacySpecialFontFamily = normalizeObsidianFontFamily(
@@ -636,9 +727,15 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
         stored?.layoutPreset ?? (stored ? "custom" : "default"),
         customLayoutPresets,
       ),
+      lastSelectedLayoutPreset: normalizeOptionalLayoutPresetId(
+        stored?.lastSelectedLayoutPreset,
+        customLayoutPresets,
+      ),
       obsidianOverrides: normalizeLayoutPresetOverrides(stored?.obsidianOverrides),
       customLayoutPresets,
       documentLayouts,
+      readerSettings,
+      readerPositions,
       cssClassLayoutRules,
       imageExportWidth: normalizeImageExportWidth(stored?.imageExportWidth),
       settingsSchemaVersion: Math.max(
@@ -648,6 +745,15 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       defaultWritingModeEnabled: writingModeSettings.defaultWritingModeEnabled,
       autoApplyRules: writingModeSettings.autoApplyRules,
       documentWritingModes: writingModeSettings.documentWritingModes,
+      typewriterModeAppliesToAllDocuments: normalizeTypewriterScopeSetting(stored),
+      documentTypewriterModes: stored?.documentTypewriterModes
+        && typeof stored.documentTypewriterModes === "object"
+        && !Array.isArray(stored.documentTypewriterModes)
+        ? Object.fromEntries(
+          Object.entries(stored.documentTypewriterModes)
+            .filter(([path, enabled]) => Boolean(path) && typeof enabled === "boolean"),
+        )
+        : {},
       autoTypewriterOnWritingMode: writingModeSettings.autoTypewriterOnWritingMode,
       bodyFont: normalizedFontSettings.bodyFont,
       headingFont: normalizedFontSettings.headingFont,
@@ -672,13 +778,25 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       countMode: stored?.countMode === "body-characters"
         ? "body-characters"
         : "creative",
+      showQuickFormattingRibbon: typeof stored?.showQuickFormattingRibbon === "boolean"
+        ? stored.showQuickFormattingRibbon
+        : DEFAULT_SETTINGS.showQuickFormattingRibbon,
+      autoFormatOnManualWritingMode: typeof stored?.autoFormatOnManualWritingMode === "boolean"
+        ? stored.autoFormatOnManualWritingMode
+        : DEFAULT_SETTINGS.autoFormatOnManualWritingMode,
       interfaceAccentMode: normalizeInterfaceAccentMode(stored?.interfaceAccentMode),
       interfaceAccentColor: normalizeAccentColor(stored?.interfaceAccentColor),
       typewriterCursorPosition: normalizeTypewriterCursorPosition(
         stored?.typewriterCursorPosition,
       ),
     };
-    if (writingModeSettings.changed || normalizedFontSettings.changed || hasLegacyFontPresets) {
+    if (
+      writingModeSettings.changed
+      || normalizedFontSettings.changed
+      || hasLegacyFontPresets
+      || readerSettingsChanged
+      || readerPositionsChanged
+    ) {
       await this.enqueueSettingsSave();
     }
   }
@@ -973,10 +1091,49 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
 
   async saveAndApplySettings(refreshPanels = true): Promise<void> {
     await this.enqueueSettingsSave();
+    this.syncQuickFormattingRibbonVisibility();
     this.applySettings();
     this.syncAllViews();
     this.updateStatusBar();
     if (refreshPanels) this.refreshWritingPanels();
+  }
+
+  async setQuickFormattingRibbonVisible(value: boolean): Promise<void> {
+    this.settings.showQuickFormattingRibbon = value;
+    this.syncQuickFormattingRibbonVisibility();
+    await this.enqueueSettingsSave();
+  }
+
+  private syncQuickFormattingRibbonVisibility(): void {
+    if (!this.settings.showQuickFormattingRibbon) {
+      this.quickFormattingRibbon?.remove();
+      this.quickFormattingRibbon = undefined;
+      return;
+    }
+    if (this.quickFormattingRibbon?.isConnected) {
+      this.quickFormattingRibbon.parentElement?.append(this.quickFormattingRibbon);
+      return;
+    }
+    const ribbon = this.addRibbonIcon(
+      "wand-sparkles",
+      "使用默认方案一键排版",
+      () => {
+        void this.runQuickFormattingFromRibbon();
+      },
+    );
+    this.quickFormattingRibbon = ribbon;
+    ribbon.parentElement?.append(ribbon);
+  }
+
+  private async runQuickFormattingFromRibbon(): Promise<void> {
+    const ribbon = this.quickFormattingRibbon;
+    if (!ribbon || ribbon.getAttribute("aria-disabled") === "true") return;
+    ribbon.setAttribute("aria-disabled", "true");
+    try {
+      await this.applySavedFormatting();
+    } finally {
+      ribbon.removeAttribute("aria-disabled");
+    }
   }
 
   previewSettings(patch: Partial<ChineseWritingSettings>): void {
@@ -1000,11 +1157,53 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     if (this.settings.layoutPreset === "default") {
       return this.getRecommendedLayoutSettings();
     }
+    const savedPresetValues = getLayoutPresetValues(
+      this.settings.layoutPreset,
+      this.settings.customLayoutPresets,
+    );
+    if (savedPresetValues) return savedPresetValues;
     return normalizeLayoutPresetValues(captureLayoutPreset(this.settings));
   }
 
   getCurrentLayoutPresetId(): LayoutPresetId {
     return this.getLayoutPresetIdForFile(this.getWritingMarkdownView()?.file ?? null);
+  }
+
+  getCurrentLayoutSourceStatus(): string {
+    const file = this.getWritingMarkdownView()?.file ?? null;
+    const context = file ? this.getWritingContextForFile(file) : null;
+    const documentLayout = file ? this.settings.documentLayouts[file.path] : undefined;
+    const presetId = documentLayout?.layoutPreset
+      ?? context?.layoutPreset
+      ?? this.settings.layoutPreset;
+    const source = documentLayout
+      ? "document"
+      : context?.layoutSource.kind === "rule"
+        ? "rule"
+        : "global";
+    const basePresetId = documentLayout?.layoutPreset === "custom"
+      ? documentLayout.lastSelectedLayoutPreset
+      : undefined;
+    return formatLayoutSourceStatus({
+      source,
+      presetLabel: this.getLayoutPresetLabel(presetId),
+      ...(basePresetId ? { basePresetLabel: this.getLayoutPresetLabel(basePresetId) } : {}),
+      followsObsidian: source === "global" && presetId === "obsidian",
+    });
+  }
+
+  getCurrentLayoutResetPresetId(): LayoutPresetId | null {
+    const file = this.getWritingMarkdownView()?.file ?? null;
+    const documentLayout = file ? this.settings.documentLayouts[file.path] : undefined;
+    const currentPresetId = this.getLayoutPresetIdForFile(file);
+    const lastSelectedPresetId = documentLayout
+      ? documentLayout.lastSelectedLayoutPreset
+      : this.settings.lastSelectedLayoutPreset;
+    return resolveLayoutPresetToRestore(
+      currentPresetId,
+      lastSelectedPresetId,
+      this.settings.customLayoutPresets,
+    );
   }
 
   hasCurrentFollowObsidianOverrides(): boolean {
@@ -1184,6 +1383,9 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     return cloneLayoutHistorySnapshot({
       target: { kind: "global" },
       layoutPreset: this.settings.layoutPreset,
+      ...(this.settings.lastSelectedLayoutPreset === undefined
+        ? {}
+        : { lastSelectedLayoutPreset: this.settings.lastSelectedLayoutPreset }),
       values: this.getGlobalLayoutSettings(),
       obsidianOverrides: { ...this.settings.obsidianOverrides },
     });
@@ -1195,6 +1397,11 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     if (isGlobalLayoutHistorySnapshot(snapshot)) {
       Object.assign(this.settings, snapshot.values);
       this.settings.layoutPreset = snapshot.layoutPreset;
+      if (snapshot.lastSelectedLayoutPreset === undefined) {
+        delete this.settings.lastSelectedLayoutPreset;
+      } else {
+        this.settings.lastSelectedLayoutPreset = snapshot.lastSelectedLayoutPreset;
+      }
       this.settings.obsidianOverrides = { ...snapshot.obsidianOverrides };
       return;
     }
@@ -1264,6 +1471,9 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
         obsidianOverrides: layoutPreset === "obsidian"
           ? { ...this.getFollowObsidianOverridesForFile(file) }
           : {},
+        ...(layoutPreset === "custom" && this.settings.lastSelectedLayoutPreset !== undefined
+          ? { lastSelectedLayoutPreset: this.settings.lastSelectedLayoutPreset }
+          : {}),
       };
     } else {
       delete this.settings.documentLayouts[file.path];
@@ -1338,13 +1548,22 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     const file = this.getWritingMarkdownView()?.file;
     const documentLayout = file ? this.ensureDocumentLayoutForCurrentFile(file) : undefined;
     if (documentLayout) {
+      if (documentLayout.layoutPreset !== "custom") {
+        documentLayout.lastSelectedLayoutPreset = documentLayout.layoutPreset;
+      }
       documentLayout.layoutPreset = getEditedLayoutPresetId(documentLayout.layoutPreset);
       return;
+    }
+    if (this.settings.layoutPreset !== "custom") {
+      this.settings.lastSelectedLayoutPreset = this.settings.layoutPreset;
     }
     this.settings.layoutPreset = getEditedLayoutPresetId(this.settings.layoutPreset);
   }
 
   markGlobalLayoutPresetEdited(): void {
+    if (this.settings.layoutPreset !== "custom") {
+      this.settings.lastSelectedLayoutPreset = this.settings.layoutPreset;
+    }
     this.settings.layoutPreset = getEditedLayoutPresetId(this.settings.layoutPreset);
   }
 
@@ -1368,9 +1587,15 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       obsidianOverrides: {},
       customLayoutPresets: [],
       documentLayouts: {},
+      readerSettings: {
+        ...DEFAULT_SETTINGS.readerSettings,
+        font: { ...DEFAULT_SETTINGS.readerSettings.font },
+      },
+      readerPositions: {},
       cssClassLayoutRules: [],
       autoApplyRules: [],
       documentWritingModes: {},
+      documentTypewriterModes: {},
     };
     this.layoutHistory.clear();
     this.pendingLayoutHistoryTargetKey = undefined;
@@ -1396,9 +1621,15 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
         ? this.getRecommendedLayoutSettings()
         : ruleValues;
     }
-    return this.settings.layoutPreset === "default"
-      ? this.getRecommendedLayoutSettings()
-      : normalizeLayoutPresetValues(captureLayoutPreset(this.settings));
+    if (this.settings.layoutPreset === "default") {
+      return this.getRecommendedLayoutSettings();
+    }
+    const savedPresetValues = getLayoutPresetValues(
+      this.settings.layoutPreset,
+      this.settings.customLayoutPresets,
+    );
+    return savedPresetValues
+      ?? normalizeLayoutPresetValues(captureLayoutPreset(this.settings));
   }
 
   /**
@@ -1513,6 +1744,10 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       layoutPreset: rule?.layoutPreset ?? context.layoutPreset,
       values: this.getLayoutSettingsForFile(file),
       obsidianOverrides: {},
+      ...((rule?.layoutPreset ?? context.layoutPreset) === "custom"
+        && this.settings.lastSelectedLayoutPreset !== undefined
+        ? { lastSelectedLayoutPreset: this.settings.lastSelectedLayoutPreset }
+        : {}),
     };
     this.settings.documentLayouts[file.path] = documentLayout;
     return documentLayout;
@@ -1655,8 +1890,13 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
 
   private getTypewriterRuntimeState(): TypewriterRuntimeState {
     const file = this.getWritingMarkdownView()?.file ?? null;
+    const manualEnabled = resolveManualTypewriterMode({
+      appliesToAllDocuments: this.settings.typewriterModeAppliesToAllDocuments,
+      globalEnabled: this.settings.typewriterMode,
+      documentEnabled: Boolean(file && this.settings.documentTypewriterModes[file.path]),
+    });
     return {
-      manualEnabled: this.settings.typewriterMode,
+      manualEnabled,
       autoEnabled: this.settings.autoTypewriterOnWritingMode,
       writingModeEnabled: this.isNovelFile(file),
       autoSuppressed: Boolean(file && this.autoTypewriterSuppressedPath === file.path),
@@ -1758,6 +1998,61 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     return resolveWritingContext(this.getWritingFileFacts(file), this.settings);
   }
 
+  private getCurrentWritingContextSummary(): WritingContextSummary | null {
+    const file = this.getWritingMarkdownView()?.file;
+    if (!file) return null;
+    const context = this.getWritingContextForFile(file);
+    return {
+      filePath: file.path,
+      enabled: context.enabled,
+      layoutPreset: context.layoutPreset,
+      layoutLabel: this.getLayoutPresetLabel(context.layoutPreset),
+      activationSource: context.activationSource.kind,
+      layoutSource: context.layoutSource.kind,
+    };
+  }
+
+  private registerModuleApi(): void {
+    const host = window as Window & WritingToolsGlobal;
+    const workspaceRules: WorkspaceRulesApi = {
+      protocolVersion: 1,
+      getWorkspaceRules: () => toWorkspaceApplyRules(this.settings.autoApplyRules),
+      subscribe: (listener) => {
+        this.workspaceRuleListeners.add(listener);
+        return () => this.workspaceRuleListeners.delete(listener);
+      },
+    };
+    this.unregisterModule = registerWritingModule(host, createWritingLayoutModuleApi({
+      moduleVersion: this.manifest.version,
+      getCurrentWritingContext: () => this.getCurrentWritingContextSummary(),
+      subscribe: (listener) => {
+        this.writingContextListeners.add(listener);
+        return () => this.writingContextListeners.delete(listener);
+      },
+      openStudio: () => this.openWritingPanel(false),
+      openFormatting: () => this.openFormattingModal(),
+      openExport: () => this.openExportModal(),
+      workspaceRules,
+    }));
+  }
+
+  private notifyWritingContextChange(): void {
+    for (const listener of this.writingContextListeners) {
+      try {
+        listener();
+      } catch (error) {
+        console.error("中文写作排版：工作台订阅回调失败", error);
+      }
+    }
+    for (const listener of this.workspaceRuleListeners) {
+      try {
+        listener();
+      } catch (error) {
+        console.error("中文写作排版：工作区规则订阅回调失败", error);
+      }
+    }
+  }
+
   getCurrentDocumentWritingMode(): DocumentWritingMode | null {
     const file = this.getWritingMarkdownView()?.file;
     return file ? this.settings.documentWritingModes[file.path] ?? null : null;
@@ -1772,6 +2067,14 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     this.settings.documentWritingModes[file.path] = wasEnabled ? "force-off" : "force-on";
     this.autoTypewriterSuppressedPath = undefined;
     await this.saveAndApplySettings();
+    const isEnabled = this.isNovelFile(file);
+    if (shouldAutoFormatOnManualWritingModeTransition(
+      wasEnabled,
+      isEnabled,
+      this.settings.autoFormatOnManualWritingMode,
+    )) {
+      await this.applySavedFormatting();
+    }
     if (notify) new Notice(wasEnabled ? "已关闭写作模式" : "已开启写作模式");
   }
 
@@ -1796,6 +2099,8 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     return [
       ...Object.keys(this.settings.documentLayouts),
       ...Object.keys(this.settings.documentWritingModes),
+      ...Object.keys(this.settings.documentTypewriterModes),
+      ...Object.keys(this.settings.readerPositions),
     ].some((storedPath) => storedPath === path || storedPath.startsWith(prefix));
   }
 
@@ -1850,6 +2155,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     }
     this.updateAutoTypewriterEntryState();
     this.applyTypewriterRuntime();
+    this.notifyWritingContextChange();
   }
 
   private clearViewClasses(leaf: WorkspaceLeaf): void {
@@ -2016,6 +2322,123 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     new Notice("请先在“设置 → 核心插件”中启用“文件恢复”。");
   }
 
+  getReaderSourceView(file: TFile): MarkdownView | null {
+    const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (active?.file?.path === file.path) return active;
+
+    const remembered = this.lastMarkdownLeaf?.view;
+    if (remembered instanceof MarkdownView && remembered.file?.path === file.path) {
+      return remembered;
+    }
+
+    return this.app.workspace
+      .getLeavesOfType("markdown")
+      .map((leaf) => leaf.view)
+      .find((view): view is MarkdownView => (
+        view instanceof MarkdownView && view.file?.path === file.path
+      )) ?? null;
+  }
+
+  getReaderSettings(): ReaderSettings {
+    return {
+      ...this.settings.readerSettings,
+      font: { ...this.settings.readerSettings.font },
+    };
+  }
+
+  getReaderUserFonts(): readonly UserFont[] {
+    return this.settings.userFonts;
+  }
+
+  getReaderPosition(path: string): ReaderPosition | undefined {
+    const position = this.settings.readerPositions[path];
+    if (!position) return undefined;
+    return {
+      anchor: { ...position.anchor },
+      updatedAt: position.updatedAt,
+    };
+  }
+
+  previewReaderSettings(patch: Partial<ReaderSettings>): void {
+    this.settings.readerSettings = normalizeReaderSettings({
+      ...this.settings.readerSettings,
+      ...patch,
+    });
+    this.refreshReaderViews();
+  }
+
+  async commitReaderSettings(): Promise<void> {
+    await this.enqueueSettingsSave();
+  }
+
+  openReaderModeModal(): void {
+    if (!READER_MODE_ENABLED) return;
+    if (!this.getWritingMarkdownView()?.file) {
+      new Notice("请先打开一篇 Markdown 笔记");
+      return;
+    }
+    new ReaderModeModal(this.app, this).open();
+  }
+
+  async openReader(mode: ReaderMode): Promise<void> {
+    if (!READER_MODE_ENABLED) return;
+    const sourceView = this.getWritingMarkdownView();
+    if (!sourceView?.file) {
+      new Notice("请先打开一篇 Markdown 笔记");
+      return;
+    }
+    this.lastMarkdownLeaf = sourceView.leaf;
+
+    let leaf = this.app.workspace.getLeavesOfType(READER_VIEW_TYPE)[0];
+    if (!leaf) leaf = this.app.workspace.getLeaf(true);
+    if (leaf.view instanceof ReaderView) leaf.view.setSourceLeaf(sourceView.leaf);
+    await leaf.setViewState({
+      type: READER_VIEW_TYPE,
+      state: { file: sourceView.file.path, mode },
+      active: true,
+    });
+    await this.app.workspace.revealLeaf(leaf);
+    if (leaf.view instanceof ReaderView) leaf.view.setSourceLeaf(sourceView.leaf);
+  }
+
+  openReaderSettings(_view: ReaderView): void {
+    new ReaderSettingsModal(this.app, this).open();
+  }
+
+  async saveReaderPosition(path: string, position: ReaderPosition): Promise<void> {
+    this.settings.readerPositions[path] = {
+      anchor: { ...position.anchor },
+      updatedAt: position.updatedAt,
+    };
+    await this.enqueueSettingsSave();
+  }
+
+  async exitReader(view: ReaderView): Promise<void> {
+    await view.saveCurrentPosition();
+    const file = view.file;
+    const rememberedSource = view.getSourceLeaf();
+    const sourceLeaf = rememberedSource
+      && rememberedSource.view instanceof MarkdownView
+      && rememberedSource.view.file?.path === file?.path
+      ? rememberedSource
+      : file
+        ? this.app.workspace.getLeavesOfType("markdown").find((leaf) => (
+          leaf.view instanceof MarkdownView && leaf.view.file?.path === file.path
+        ))
+        : undefined;
+
+    this.app.workspace.detachLeavesOfType(READER_VIEW_TYPE);
+    if (sourceLeaf) {
+      await this.app.workspace.revealLeaf(sourceLeaf);
+      return;
+    }
+    if (file) {
+      const leaf = this.app.workspace.getLeaf(false);
+      await leaf.openFile(file);
+      await this.app.workspace.revealLeaf(leaf);
+    }
+  }
+
   async openWritingPanel(setProfessionalMode = true): Promise<void> {
     const currentView = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (currentView) this.lastMarkdownLeaf = currentView.leaf;
@@ -2084,8 +2507,23 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
 
   async toggleTypewriterMode(): Promise<void> {
     const file = this.getWritingMarkdownView()?.file ?? null;
+    if (!file) {
+      new Notice("请先打开一篇 Markdown 笔记");
+      return;
+    }
     const plan = planTypewriterToggle(this.getTypewriterRuntimeState());
-    this.settings.typewriterMode = plan.manualEnabled;
+    const currentDocumentEnabled = Boolean(this.settings.documentTypewriterModes[file.path]);
+    const manualState = updateManualTypewriterState({
+      appliesToAllDocuments: this.settings.typewriterModeAppliesToAllDocuments,
+      globalEnabled: this.settings.typewriterMode,
+      documentEnabled: currentDocumentEnabled,
+    }, plan.manualEnabled);
+    this.settings.typewriterMode = manualState.globalEnabled;
+    if (manualState.documentEnabled) {
+      this.settings.documentTypewriterModes[file.path] = true;
+    } else {
+      delete this.settings.documentTypewriterModes[file.path];
+    }
     this.autoTypewriterSuppressedPath = plan.autoSuppressed && file
       ? file.path
       : undefined;
@@ -2101,21 +2539,6 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       view.editor.scrollIntoView({ from: cursor, to: cursor }, true);
     }
     new Notice(enabled ? "已开启打字机模式" : "已关闭打字机模式");
-  }
-
-  async setManualTypewriterMode(enabled: boolean): Promise<void> {
-    const file = this.getWritingMarkdownView()?.file ?? null;
-    this.settings.typewriterMode = enabled;
-    this.autoTypewriterSuppressedPath = !enabled
-      && file
-      && this.settings.autoTypewriterOnWritingMode
-      && this.isNovelFile(file)
-      ? file.path
-      : undefined;
-    if (this.autoTypewriterSuppressedPath) {
-      this.lastAutoTypewriterWritingPath = this.autoTypewriterSuppressedPath;
-    }
-    await this.saveAndApplySettings();
   }
 
   isFocusModeEnabled(): boolean {
@@ -2663,8 +3086,13 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     if (!values) {
       const file = this.getWritingMarkdownView()?.file;
       const documentLayout = file ? this.settings.documentLayouts[file.path] : undefined;
-      if (documentLayout) documentLayout.layoutPreset = "custom";
-      else this.settings.layoutPreset = "custom";
+      if (documentLayout) {
+        documentLayout.layoutPreset = "custom";
+        delete documentLayout.lastSelectedLayoutPreset;
+      } else {
+        this.settings.layoutPreset = "custom";
+        delete this.settings.lastSelectedLayoutPreset;
+      }
       await this.commitSettings();
       return;
     }
@@ -2687,9 +3115,11 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       if (documentLayout) {
         documentLayout.layoutPreset = "obsidian";
         documentLayout.obsidianOverrides = {};
+        delete documentLayout.lastSelectedLayoutPreset;
       } else {
         this.settings.layoutPreset = "obsidian";
         this.settings.obsidianOverrides = {};
+        delete this.settings.lastSelectedLayoutPreset;
       }
       return;
     }
@@ -2703,10 +3133,12 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     if (documentLayout) {
       documentLayout.values = normalized;
       documentLayout.layoutPreset = presetId;
+      delete documentLayout.lastSelectedLayoutPreset;
     } else {
       Object.assign(this.settings, normalized);
       if (normalized.contentWidthPx === undefined) delete this.settings.contentWidthPx;
       this.settings.layoutPreset = presetId;
+      delete this.settings.lastSelectedLayoutPreset;
     }
   }
 
@@ -2715,6 +3147,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     if (presetId === "obsidian") {
       this.settings.layoutPreset = "obsidian";
       this.settings.obsidianOverrides = {};
+      delete this.settings.lastSelectedLayoutPreset;
       await this.saveAndApplySettings();
       return;
     }
@@ -2727,6 +3160,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       if (normalized.contentWidthPx === undefined) delete this.settings.contentWidthPx;
     }
     this.settings.layoutPreset = presetId;
+    delete this.settings.lastSelectedLayoutPreset;
     await this.saveAndApplySettings();
   }
 
@@ -2736,6 +3170,15 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       () => this.applyLayoutPresetInMemory("default"),
     );
     new Notice("已应用推荐写作版式");
+  }
+
+  async resetCurrentLayoutPreset(): Promise<void> {
+    const presetId = this.getCurrentLayoutResetPresetId();
+    if (!presetId) {
+      new Notice("当前没有可恢复的上次选择模板");
+      return;
+    }
+    await this.applyLayoutPreset(presetId);
   }
 
   async saveCustomLayoutPreset(name: string, existingId?: string): Promise<string> {
@@ -2774,9 +3217,19 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     this.settings.customLayoutPresets = this.settings.customLayoutPresets.filter(
       (item) => item.id !== id,
     );
-    if (this.settings.layoutPreset === `saved:${id}`) this.settings.layoutPreset = "custom";
+    if (this.settings.layoutPreset === `saved:${id}`) {
+      this.settings.layoutPreset = "custom";
+      delete this.settings.lastSelectedLayoutPreset;
+    } else if (this.settings.lastSelectedLayoutPreset === `saved:${id}`) {
+      delete this.settings.lastSelectedLayoutPreset;
+    }
     for (const layout of Object.values(this.settings.documentLayouts)) {
-      if (layout.layoutPreset === `saved:${id}`) layout.layoutPreset = "custom";
+      if (layout.layoutPreset === `saved:${id}`) {
+        layout.layoutPreset = "custom";
+        delete layout.lastSelectedLayoutPreset;
+      } else if (layout.lastSelectedLayoutPreset === `saved:${id}`) {
+        delete layout.lastSelectedLayoutPreset;
+      }
     }
     for (const rule of this.settings.cssClassLayoutRules) {
       if (rule.layoutPreset === `saved:${id}`) rule.layoutPreset = "default";
@@ -2795,6 +3248,51 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       return;
     }
     new FormattingModal(this, targetEditor).open();
+  }
+
+  async applySavedFormatting(editor?: Editor): Promise<void> {
+    const targetEditor = editor ?? this.getWritingMarkdownView()?.editor;
+    if (!targetEditor) {
+      new Notice("请先打开一篇 Markdown 笔记");
+      return;
+    }
+    try {
+      await this.applyFormatting(
+        targetEditor,
+        { ...this.settings.formattingRules },
+        this.settings.formattingPreset,
+        false,
+        [...this.settings.formattingRuleOrder],
+        normalizeMarkdownFormattingOptions(this.settings.markdownFormatting),
+      );
+    } catch (error) {
+      console.error("中文写作排版：快捷一键排版失败", error);
+      new Notice("排版失败，请重试");
+    }
+  }
+
+  async saveFormattingSettings(
+    rules: FormattingRules,
+    preset: FormattingPresetId,
+    ruleOrder: readonly FormattingRuleKey[],
+    markdownFormatting: MarkdownFormattingOptions,
+  ): Promise<void> {
+    this.settings.formattingPreset = preset;
+    this.settings.formattingRules = { ...rules };
+    this.settings.formattingRuleOrder = normalizeRuleOrder(ruleOrder);
+    this.settings.markdownFormatting = normalizeMarkdownFormattingOptions(markdownFormatting);
+    await this.saveAndApplySettings(false);
+    new Notice("已保存一键排版设置");
+  }
+
+  undoCurrentEditorChange(): void {
+    const editor = this.getWritingMarkdownView()?.editor;
+    if (!editor) {
+      new Notice("请先打开一篇 Markdown 笔记");
+      return;
+    }
+    editor.undo();
+    editor.focus();
   }
 
   openBatchFormattingModal(request: BatchFormattingRequest): void {
@@ -3040,6 +3538,12 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   private refreshWritingPanels(): void {
     for (const leaf of this.app.workspace.getLeavesOfType(WRITING_PANEL_VIEW_TYPE)) {
       if (leaf.view instanceof WritingPanelView) leaf.view.refresh();
+    }
+  }
+
+  private refreshReaderViews(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(READER_VIEW_TYPE)) {
+      if (leaf.view instanceof ReaderView) leaf.view.refreshContent();
     }
   }
 }

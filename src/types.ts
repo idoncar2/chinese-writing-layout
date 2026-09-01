@@ -46,6 +46,31 @@ export type FontSelection =
   | { source: FontSource; id: string }
   | { source: "inherit"; id: "body" };
 
+export type ReaderMode = "desktop" | "phone";
+export type ReaderBackground = "white" | "warm" | "gray" | "dark";
+
+export interface ReaderSettings {
+  font: FontSelection;
+  fontSize: number;
+  lineHeight: number;
+  paragraphSpacing: number;
+  contentWidth: number;
+  pagePadding: number;
+  background: ReaderBackground;
+}
+
+export interface ReaderAnchor {
+  blockIndex: number;
+  blockHash?: string;
+  textOffset: number;
+  documentProgress: number;
+}
+
+export interface ReaderPosition {
+  anchor: ReaderAnchor;
+  updatedAt: number;
+}
+
 export interface UserFont {
   id: string;
   name: string;
@@ -257,6 +282,8 @@ export interface DocumentLayoutSettings {
   layoutPreset: LayoutPresetId;
   values: LayoutPresetValues;
   obsidianOverrides?: LayoutPresetOverrides;
+  /** When the layout becomes custom, keep the template it was based on for reset. */
+  lastSelectedLayoutPreset?: LayoutPresetId;
 }
 
 export interface CssClassLayoutRule {
@@ -335,10 +362,17 @@ export interface ChineseWritingSettings {
   centerHeadingLevels: HeadingLevel[];
   showDiagnostics: boolean;
   showStatusBar: boolean;
+  showQuickFormattingRibbon: boolean;
   countMode: CountMode;
+  /** Whether the workbench typewriter button controls every document. */
+  typewriterModeAppliesToAllDocuments: boolean;
+  /** Shared manual state used when typewriterModeAppliesToAllDocuments is enabled. */
   typewriterMode: boolean;
+  /** Per-document manual state used when global scope is disabled. */
+  documentTypewriterModes: Record<string, boolean>;
   /** Runtime entry behavior only; it must never overwrite typewriterMode. */
   autoTypewriterOnWritingMode: boolean;
+  autoFormatOnManualWritingMode: boolean;
   typewriterCursorPosition: number;
   highlightCurrentLine: boolean;
   formattingPreset: FormattingPresetId;
@@ -348,9 +382,13 @@ export interface ChineseWritingSettings {
   customFormattingPresets: CustomFormattingPreset[];
   userFonts: UserFont[];
   layoutPreset: LayoutPresetId;
+  /** When the global layout becomes custom, keep the template it was based on for reset. */
+  lastSelectedLayoutPreset?: LayoutPresetId;
   obsidianOverrides: LayoutPresetOverrides;
   customLayoutPresets: CustomLayoutPreset[];
   documentLayouts: Record<string, DocumentLayoutSettings>;
+  readerSettings: ReaderSettings;
+  readerPositions: Record<string, ReaderPosition>;
   cssClassLayoutRules: CssClassLayoutRule[];
   preferredExportFormat: ExportFormat;
   preferredExportScope: ExportScope;
@@ -448,9 +486,13 @@ export const DEFAULT_SETTINGS: ChineseWritingSettings = {
   centerHeadingLevels: [1],
   showDiagnostics: true,
   showStatusBar: true,
+  showQuickFormattingRibbon: false,
   countMode: "creative",
+  typewriterModeAppliesToAllDocuments: false,
   typewriterMode: false,
+  documentTypewriterModes: {},
   autoTypewriterOnWritingMode: false,
+  autoFormatOnManualWritingMode: false,
   typewriterCursorPosition: 50,
   highlightCurrentLine: false,
   formattingPreset: "novel",
@@ -466,6 +508,16 @@ export const DEFAULT_SETTINGS: ChineseWritingSettings = {
   obsidianOverrides: {},
   customLayoutPresets: [],
   documentLayouts: {},
+  readerSettings: {
+    font: { source: "obsidian", id: "text" },
+    fontSize: 18,
+    lineHeight: 1.9,
+    paragraphSpacing: 0.8,
+    contentWidth: 720,
+    pagePadding: 40,
+    background: "warm",
+  },
+  readerPositions: {},
   cssClassLayoutRules: [],
   preferredExportFormat: "txt",
   preferredExportScope: "current",

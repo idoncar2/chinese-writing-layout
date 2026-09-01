@@ -143,11 +143,11 @@ describe("writing mode settings UI", () => {
     expect(source).toContain("autoTypewriterOnWritingMode");
     expect(source).toContain('setName("开启写作模式时自动启用")');
     expect(source).toContain('setName("光标位置")');
-    expect(source).toContain('setName("手动开启打字机模式")');
+    expect(source).toContain('setName("工作台打字机作用于所有文章")');
     expect(source).toContain("让正在输入的一行停留在指定高度，只改变编辑视图，不会修改正文。");
-    expect(source).toContain("开启后会记住状态，直到再次关闭；与自动启用相互独立。");
+    expect(source).toContain("开启后，在写作工坊中切换打字机模式会同步作用于所有文章；关闭后仅作用于当前文章。");
     expect(source).not.toContain("手动常驻");
-    expect(source).toContain("setManualTypewriterMode");
+    expect(source).toContain("typewriterModeAppliesToAllDocuments");
     expect(source).toContain("TYPEWRITER_CURSOR_POSITIONS");
   });
 });
