@@ -481,16 +481,19 @@ export class WritingPanelView extends ItemView {
       cls: "cw-panel-note-help",
     });
     const layoutSourceStatus = this.plugin.getCurrentLayoutSourceStatus();
-    const layoutSourceButton = noteCard.createEl("button", {
+    const layoutSourceLink = noteCard.createEl("a", {
       text: `版式来源：${layoutSourceStatus}`,
       cls: "cw-panel-layout-source",
       attr: {
-        type: "button",
+        href: "#cw-panel-layout-scope",
         "aria-label": `当前版式来源：${layoutSourceStatus}；点击前往版式微调`,
         title: "点击前往版式微调",
       },
     });
-    layoutSourceButton.addEventListener("click", () => this.locateLayoutScope());
+    layoutSourceLink.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.locateLayoutScope();
+    });
     if (documentWritingMode) {
       const followButton = noteCard.createEl("button", {
         text: "恢复跟随自动规则",
@@ -569,7 +572,10 @@ export class WritingPanelView extends ItemView {
       cls: "cw-panel-help cw-panel-obsidian-baseline",
     });
 
-    const scope = section.createDiv({ cls: "cw-panel-layout-scope" });
+    const scope = section.createDiv({
+      cls: "cw-panel-layout-scope",
+      attr: { id: "cw-panel-layout-scope" },
+    });
     const scopeLabel = scope.createEl("label");
     scopeLabel.createSpan({ text: "此笔记使用独立版式" });
     const scopeToggle = scopeLabel.createEl("input", { type: "checkbox" });
@@ -667,6 +673,7 @@ export class WritingPanelView extends ItemView {
     this.renderLayoutResetAction(section);
 
     section.createDiv({ text: "写作辅助", cls: "cw-panel-subsection-label" });
+    this.addToggle(section, "中文引号自动配对", "autoPairChineseQuotes");
     this.addToggle(section, "标点提示", "showDiagnostics");
     this.addToggle(section, "状态栏统计", "showStatusBar");
     this.renderInterfaceAccentControls(section);
@@ -1253,7 +1260,7 @@ export class WritingPanelView extends ItemView {
   private addToggle(
     container: HTMLElement,
     labelText: string,
-    key: "justifyText" | "showDiagnostics" | "showStatusBar",
+    key: "justifyText" | "showDiagnostics" | "showStatusBar" | "autoPairChineseQuotes",
     rowClass = "",
   ): void {
     const row = container.createDiv({

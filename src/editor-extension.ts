@@ -13,6 +13,26 @@ import {
   isProseLine,
 } from "./text-analysis";
 import { normalizeTypewriterCursorPosition } from "./types";
+import { createQuoteInputExtension } from "./quote-input";
+
+const SCROLL_BOTTOM_VISIBILITY_THRESHOLD = 40;
+type EditorIconSetter = (element: HTMLElement, iconId: string) => void;
+
+function createFallbackEditorIcon(element: HTMLElement): void {
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const arrow = document.createElementNS(namespace, "path");
+  arrow.setAttribute("d", "M12 3v14m-5-5 5 5 5-5M5 21h14");
+  svg.appendChild(arrow);
+  element.appendChild(svg);
+}
 
 const diagnosticClasses: Record<DiagnosticKind, string> = {
   "halfwidth-punctuation": "cw-diagnostic-halfwidth",
@@ -29,6 +49,20 @@ export function calculateTypewriterScrollDelta(
 ): number {
   const position = normalizeTypewriterCursorPosition(positionPercent) / 100;
   return caretTop - (viewportTop + viewportHeight * position);
+}
+
+export function shouldShowScrollToBottom(
+  scrollTop: number,
+  clientHeight: number,
+  scrollHeight: number,
+  threshold = SCROLL_BOTTOM_VISIBILITY_THRESHOLD,
+): boolean {
+  const maximumScrollTop = Math.max(0, scrollHeight - clientHeight);
+  return maximumScrollTop > 1 && maximumScrollTop - scrollTop > threshold;
+}
+
+export function getScrollToBottomBehavior(reducedMotion: boolean): ScrollBehavior {
+  return reducedMotion ? "auto" : "smooth";
 }
 
 function intersectsVisibleRange(
@@ -104,18 +138,38 @@ function buildDecorations(view: EditorView): DecorationSet {
 class ChineseWritingViewPlugin implements PluginValue {
   decorations: DecorationSet;
   private centerFrame?: number;
+  private scrollBottomFrame?: number;
   private readonly positionChangeListener: () => void;
+  private readonly scrollBottomButton: HTMLButtonElement;
+  private readonly scrollBottomClickListener: () => void;
+  private readonly scrollBottomPointerListener: (event: PointerEvent) => void;
+  private readonly scrollListener: () => void;
   private readonly view: EditorView;
 
-  constructor(view: EditorView) {
+  constructor(view: EditorView, setEditorIcon: EditorIconSetter) {
     this.view = view;
     this.positionChangeListener = () => this.scheduleTypewriterCenter(this.view, true);
     document.addEventListener(
       "cw-typewriter-position-change",
       this.positionChangeListener,
     );
+    this.scrollBottomButton = document.createElement("button");
+    this.scrollBottomButton.type = "button";
+    this.scrollBottomButton.className = "cw-editor-scroll-bottom";
+    this.scrollBottomButton.setAttribute("aria-label", "滚动到正文底部");
+    this.scrollBottomButton.setAttribute("aria-hidden", "true");
+    this.scrollBottomButton.tabIndex = -1;
+    setEditorIcon(this.scrollBottomButton, "arrow-down-to-line");
+    this.scrollListener = () => this.scheduleScrollBottomUpdate();
+    this.scrollBottomClickListener = () => this.scrollToBottom();
+    this.scrollBottomPointerListener = (event) => event.preventDefault();
+    this.scrollBottomButton.addEventListener("click", this.scrollBottomClickListener);
+    this.scrollBottomButton.addEventListener("pointerdown", this.scrollBottomPointerListener);
+    view.scrollDOM.addEventListener("scroll", this.scrollListener, { passive: true });
+    view.dom.appendChild(this.scrollBottomButton);
     this.decorations = buildDecorations(view);
     this.scheduleTypewriterCenter(view);
+    this.scheduleScrollBottomUpdate();
   }
 
   update(update: ViewUpdate): void {
@@ -130,16 +184,49 @@ class ChineseWritingViewPlugin implements PluginValue {
     if (update.docChanged || update.selectionSet) {
       this.scheduleTypewriterCenter(update.view);
     }
+    if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+      this.scheduleScrollBottomUpdate();
+    }
   }
 
   destroy(): void {
     if (this.centerFrame !== undefined) {
       window.cancelAnimationFrame(this.centerFrame);
     }
+    if (this.scrollBottomFrame !== undefined) {
+      window.cancelAnimationFrame(this.scrollBottomFrame);
+    }
     document.removeEventListener(
       "cw-typewriter-position-change",
       this.positionChangeListener,
     );
+    this.view.scrollDOM.removeEventListener("scroll", this.scrollListener);
+    this.scrollBottomButton.removeEventListener("click", this.scrollBottomClickListener);
+    this.scrollBottomButton.removeEventListener("pointerdown", this.scrollBottomPointerListener);
+    this.scrollBottomButton.remove();
+  }
+
+  private scheduleScrollBottomUpdate(): void {
+    if (this.scrollBottomFrame !== undefined) {
+      window.cancelAnimationFrame(this.scrollBottomFrame);
+    }
+    this.scrollBottomFrame = window.requestAnimationFrame(() => {
+      this.scrollBottomFrame = undefined;
+      const { scrollTop, clientHeight, scrollHeight } = this.view.scrollDOM;
+      const visible = shouldShowScrollToBottom(scrollTop, clientHeight, scrollHeight);
+      this.scrollBottomButton.classList.toggle("is-visible", visible);
+      this.scrollBottomButton.setAttribute("aria-hidden", String(!visible));
+      this.scrollBottomButton.tabIndex = visible ? 0 : -1;
+    });
+  }
+
+  private scrollToBottom(): void {
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      ?? false;
+    this.view.scrollDOM.scrollTo({
+      top: this.view.scrollDOM.scrollHeight - this.view.scrollDOM.clientHeight,
+      behavior: getScrollToBottomBehavior(reducedMotion),
+    });
   }
 
   private scheduleTypewriterCenter(view: EditorView, forceActiveView = false): void {
@@ -174,8 +261,16 @@ class ChineseWritingViewPlugin implements PluginValue {
   }
 }
 
-export function createWritingEditorExtension(): Extension {
-  return ViewPlugin.fromClass(ChineseWritingViewPlugin, {
+export function createWritingEditorExtension(
+  isQuoteInputEnabled: () => boolean = () => true,
+  setEditorIcon: EditorIconSetter = createFallbackEditorIcon,
+): Extension {
+  class ConfiguredChineseWritingViewPlugin extends ChineseWritingViewPlugin {
+    constructor(view: EditorView) {
+      super(view, setEditorIcon);
+    }
+  }
+  return [createQuoteInputExtension(isQuoteInputEnabled), ViewPlugin.fromClass(ConfiguredChineseWritingViewPlugin, {
     decorations: (plugin) => plugin.decorations,
-  });
+  })];
 }

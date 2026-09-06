@@ -287,7 +287,9 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     await this.loadUserFonts();
     this.registerModuleApi();
     this.addSettingTab(new ChineseWritingSettingTab(this.app, this));
-    this.registerEditorExtension(createWritingEditorExtension());
+    this.registerEditorExtension(
+      createWritingEditorExtension(() => this.settings.autoPairChineseQuotes, setIcon),
+    );
     this.registerMarkdownPostProcessor((element, context) => {
       const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
       syncReadingProseLines(
@@ -755,6 +757,8 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
         )
         : {},
       autoTypewriterOnWritingMode: writingModeSettings.autoTypewriterOnWritingMode,
+      autoPairChineseQuotes: typeof stored?.autoPairChineseQuotes === "boolean"
+        ? stored.autoPairChineseQuotes : DEFAULT_SETTINGS.autoPairChineseQuotes,
       bodyFont: normalizedFontSettings.bodyFont,
       headingFont: normalizedFontSettings.headingFont,
       quoteFont: normalizedFontSettings.quoteFont,

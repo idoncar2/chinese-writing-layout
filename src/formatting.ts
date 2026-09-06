@@ -2,6 +2,7 @@ import {
   getMarkdownLineContexts,
   transformMarkdownText,
 } from "./markdown-protection";
+import { repairChineseQuotes } from "./quote-repair";
 import type {
   BuiltinFormattingPresetId,
   FormattingRuleKey,
@@ -24,6 +25,10 @@ export interface FormattingRuleGroup {
 }
 
 export const FORMATTING_RULES: FormattingRuleDefinition[] = [
+  { key: "repairQuoteDirections", label: "修复中文引号方向", description: "修复边界明确的反向双引号、单引号；跨段或复杂配对保留提示。" },
+  { key: "completeMissingQuotes", label: "保守补全", description: "仅补全有中文冒号、且只有一句完整对白的单边引号；跨段已配对、多句或嵌套引语不处理。与宽松补全互斥。" },
+  { key: "completeMissingQuotesByParagraph", label: "按段落补全（宽松）", description: "不要求冒号，允许多句；段落只有一个未配对引号时，缺左补段首、缺右补段尾。空行或结构变化分隔段落；全文已配对、代码及复杂嵌套不处理。可能把叙述文字纳入引号，请检查结果。与保守补全互斥。" },
+  { key: "normalizeRepeatedPunctuation", label: "整理重复标点", description: "合并重复逗号等；连续三个以上问号或叹号保留两个。保留省略号、破折号及混合问叹号。" },
   { key: "trimLeadingWhitespace", label: "去掉行首空白字符", description: "清理正文行首的半角空格、全角空格和制表符。" },
   { key: "trimTrailingWhitespace", label: "去掉行尾空白字符", description: "清理每行末尾不可见的空格和制表符。" },
   { key: "trimDocumentBlankLines", label: "去掉文首与文末空行", description: "删除整篇正文最前面和最后面的多余空行。" },
@@ -39,9 +44,9 @@ export const FORMATTING_RULES: FormattingRuleDefinition[] = [
   { key: "removeManualIndentation", label: "移除手工段首空格", description: "写作模式已有视觉缩进，正文中无需保留段首空格。" },
   { key: "convertHalfwidthPunctuation", label: "常用半角标点转为全角", description: "仅转换紧邻中文的逗号、句号、问号、叹号、冒号和分号。" },
   { key: "convertFullwidthPunctuation", label: "常用全角标点转为半角", description: "将中文全角逗号、句号、问号等转换为半角形式。" },
-  { key: "normalizeStraightQuotes", label: "直引号修正为中文引号", description: "把成对的直双引号和直单引号修正为中文弯引号。" },
+  { key: "normalizeStraightQuotes", label: "英文直引号 → 中文弯引号", description: "例如：\"文字\" → “文字”，'文字' → ‘文字’；不处理「」『』。" },
   { key: "convertCurlyQuotesToCorner", label: "中文弯引号转直角引号", description: "将“”‘’转换为「」『』。" },
-  { key: "convertCornerQuotesToCurly", label: "直角引号转中文弯引号", description: "将「」『』转换为“”‘’。" },
+  { key: "convertCornerQuotesToCurly", label: "直角引号 → 中文弯引号", description: "例如：「文字」→“文字”，『文字』→‘文字’；不处理英文直引号。" },
   { key: "normalizeEllipsis", label: "省略号规范化", description: "将三个以上连续句点或省略号统一为“……”。" },
 ];
 
@@ -70,12 +75,15 @@ export const FORMATTING_RULE_GROUPS: FormattingRuleGroup[] = [
   },
   {
     label: "标点",
-    keys: ["convertHalfwidthPunctuation", "convertFullwidthPunctuation", "normalizeEllipsis"],
+    keys: ["convertHalfwidthPunctuation", "convertFullwidthPunctuation", "normalizeEllipsis", "normalizeRepeatedPunctuation"],
   },
   {
     label: "引号",
     keys: [
       "normalizeStraightQuotes",
+      "repairQuoteDirections",
+      "completeMissingQuotes",
+      "completeMissingQuotesByParagraph",
       "convertCurlyQuotesToCorner",
       "convertCornerQuotesToCurly",
     ],
@@ -111,6 +119,7 @@ export const FORMATTING_PRESETS: Record<
       removeSpacesBetweenChinese: true,
       convertHalfwidthPunctuation: true,
       normalizeStraightQuotes: true,
+      repairQuoteDirections: true,
       normalizeEllipsis: true,
     },
   },
@@ -237,6 +246,17 @@ function applyRule(lines: string[], key: FormattingRuleKey, protectSyntax: boole
       return transformEditableLines(lines, (segment) => segment
         .replace(/"([^"\n]+)"/g, "“$1”")
         .replace(/'([^'\n]+)'/g, "‘$1’"), protectSyntax);
+    case "repairQuoteDirections":
+      return repairChineseQuotes(lines, false);
+    case "completeMissingQuotes":
+      return repairChineseQuotes(lines, true);
+    case "completeMissingQuotesByParagraph":
+      return repairChineseQuotes(lines, "paragraph");
+    case "normalizeRepeatedPunctuation":
+      return transformEditableLines(lines, (segment) => segment
+        .replace(/([，；：、])\1+/gu, "$1")
+        .replace(/。+/gu, (run) => run.length === 2 ? "。" : run)
+        .replace(/([！？])\1{2,}/gu, "$1$1"), protectSyntax);
     case "convertCurlyQuotesToCorner":
       return transformEditableLines(lines, (segment) => segment.replace(
         /[“”‘’]/g,
@@ -273,6 +293,9 @@ export function applyFormattingRules(
   const protectSyntax = markdownFormatting?.protectSyntax !== false;
   let lines = text.split(/\r?\n/);
   for (const key of normalizeRuleOrder(order)) {
+    // Malformed/imported settings cannot enable the more aggressive mode
+    // alongside conservative completion, regardless of execution order.
+    if (key === "completeMissingQuotesByParagraph" && rules.completeMissingQuotes) continue;
     if (rules[key]) lines = applyRule(lines, key, protectSyntax);
   }
   return lines.join(newline);

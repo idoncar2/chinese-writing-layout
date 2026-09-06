@@ -120,6 +120,7 @@ export class FormattingModal extends Modal {
   private markdownSectionEl?: HTMLElement;
   private isAdjustingOrder = false;
   private restoreScrollFrame?: number;
+  private helpTooltipSerial = 0;
 
   constructor(
     private plugin: ChineseWritingLayoutPlugin,
@@ -337,7 +338,9 @@ export class FormattingModal extends Modal {
               this.renderRuleSection();
             });
           },
-          definition.description,
+          key === "completeMissingQuotes" || key === "completeMissingQuotesByParagraph"
+            ? definition.description
+            : undefined,
         );
       }
     }
@@ -441,15 +444,44 @@ export class FormattingModal extends Modal {
     label: string,
     checked: boolean,
     onChange: (checked: boolean) => void,
-    tooltip?: string,
+    helpText?: string,
   ): HTMLInputElement {
-    const option = parent.createEl("label", { cls: "cw-format-check-option" });
-    const input = option.createEl("input", { type: "checkbox" }) as HTMLInputElement;
+    const option = parent.createDiv({ cls: "cw-format-check-option" });
+    const main = option.createEl("label", { cls: "cw-format-check-main" });
+    const input = main.createEl("input", { type: "checkbox" }) as HTMLInputElement;
     input.checked = checked;
     input.setAttribute("aria-label", label);
-    option.createSpan({ text: label, cls: "cw-format-check-label" });
+    main.createSpan({ text: label, cls: "cw-format-check-label" });
+    if (helpText) {
+      option.addClass("has-help");
+      const tooltipId = `cw-format-rule-tooltip-${this.helpTooltipSerial += 1}`;
+      const help = createButton(option, "", "clickable-icon cw-format-rule-help");
+      setIcon(help, "circle-help");
+      help.setAttribute("aria-label", `查看“${label}”说明`);
+      help.setAttribute("aria-describedby", tooltipId);
+      help.setAttribute("aria-expanded", "false");
+      option.createDiv({
+        text: helpText,
+        cls: "cw-format-rule-tooltip",
+        attr: { id: tooltipId, role: "tooltip" },
+      });
+      const setOpen = (open: boolean): void => {
+        option.toggleClass("is-help-open", open);
+        help.setAttribute("aria-expanded", String(open));
+      };
+      help.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setOpen(!option.hasClass("is-help-open"));
+      });
+      help.addEventListener("blur", () => setOpen(false));
+      help.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          setOpen(false);
+          help.blur();
+        }
+      });
+    }
     option.toggleClass("is-checked", checked);
-    if (tooltip) option.title = tooltip;
     input.addEventListener("change", () => {
       option.toggleClass("is-checked", input.checked);
       onChange(input.checked);
@@ -512,7 +544,11 @@ export class FormattingModal extends Modal {
     const disable = (...keys: FormattingRuleKey[]): void => {
       for (const key of keys) this.rules[key] = false;
     };
-    if (changedKey === "removeAllBlankLines") {
+    if (changedKey === "completeMissingQuotes") {
+      disable("completeMissingQuotesByParagraph");
+    } else if (changedKey === "completeMissingQuotesByParagraph") {
+      disable("completeMissingQuotes");
+    } else if (changedKey === "removeAllBlankLines") {
       disable("collapseBlankLines", "ensureBlankLineBetweenParagraphs");
     } else if (changedKey === "collapseBlankLines" || changedKey === "ensureBlankLineBetweenParagraphs") {
       disable("removeAllBlankLines");

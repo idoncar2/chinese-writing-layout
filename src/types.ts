@@ -136,6 +136,10 @@ export interface FormattingRules {
   convertHalfwidthPunctuation: boolean;
   convertFullwidthPunctuation: boolean;
   normalizeStraightQuotes: boolean;
+  repairQuoteDirections: boolean;
+  completeMissingQuotes: boolean;
+  completeMissingQuotesByParagraph: boolean;
+  normalizeRepeatedPunctuation: boolean;
   convertCurlyQuotesToCorner: boolean;
   convertCornerQuotesToCurly: boolean;
   normalizeEllipsis: boolean;
@@ -372,6 +376,7 @@ export interface ChineseWritingSettings {
   documentTypewriterModes: Record<string, boolean>;
   /** Runtime entry behavior only; it must never overwrite typewriterMode. */
   autoTypewriterOnWritingMode: boolean;
+  autoPairChineseQuotes: boolean;
   autoFormatOnManualWritingMode: boolean;
   typewriterCursorPosition: number;
   highlightCurrentLine: boolean;
@@ -421,6 +426,10 @@ export const DEFAULT_FORMATTING_RULES: FormattingRules = {
   convertHalfwidthPunctuation: false,
   convertFullwidthPunctuation: false,
   normalizeStraightQuotes: false,
+  repairQuoteDirections: true,
+  completeMissingQuotes: false,
+  completeMissingQuotesByParagraph: false,
+  normalizeRepeatedPunctuation: false,
   convertCurlyQuotesToCorner: false,
   convertCornerQuotesToCurly: false,
   normalizeEllipsis: true,
@@ -443,6 +452,10 @@ export const DEFAULT_FORMATTING_RULE_ORDER: FormattingRuleKey[] = [
   "convertHalfwidthPunctuation",
   "convertFullwidthPunctuation",
   "normalizeStraightQuotes",
+  "repairQuoteDirections",
+  "completeMissingQuotes",
+  "completeMissingQuotesByParagraph",
+  "normalizeRepeatedPunctuation",
   "convertCurlyQuotesToCorner",
   "convertCornerQuotesToCurly",
   "normalizeEllipsis",
@@ -492,6 +505,7 @@ export const DEFAULT_SETTINGS: ChineseWritingSettings = {
   typewriterMode: false,
   documentTypewriterModes: {},
   autoTypewriterOnWritingMode: false,
+  autoPairChineseQuotes: true,
   autoFormatOnManualWritingMode: false,
   typewriterCursorPosition: 50,
   highlightCurrentLine: false,

@@ -448,6 +448,15 @@ export class ChineseWritingSettingTab extends PluginSettingTab {
 
     const assistanceGroup = this.createSettingsGroup(section, "常规辅助");
     new Setting(assistanceGroup)
+      .setName("中文引号自动配对")
+      .setDesc("输入 “ 或 ‘ 时补齐右引号；紧挨自动补出的右引号时，Enter 先跳出，再按一次换行。关闭后恢复编辑器原有行为，无需重启。")
+      .addToggle((toggle) => toggle
+        .setValue(this.plugin.settings.autoPairChineseQuotes)
+        .onChange(async (value) => {
+          this.plugin.settings.autoPairChineseQuotes = value;
+          await this.plugin.saveAndApplySettings();
+        }));
+    new Setting(assistanceGroup)
       .setName("高亮当前行")
       .setDesc("使用柔和背景标出光标所在行，不修改正文。")
       .addToggle((toggle) =>

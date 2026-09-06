@@ -5,6 +5,25 @@ import { describe, expect, it } from "vitest";
 describe("formatting modal compact controls", () => {
   const source = readFileSync(resolve("src/formatting-modal.ts"), "utf8");
   const styles = readFileSync(resolve("styles.css"), "utf8");
+  it("reveals help only on demand for both mutually exclusive quote completion choices", () => {
+    expect(source).not.toContain('cls: "cw-format-rule-description"');
+    expect(source).toContain('"clickable-icon cw-format-rule-help"');
+    expect(source).toContain('cls: "cw-format-rule-tooltip"');
+    expect(source).toContain('role: "tooltip"');
+    expect(source).toContain('aria-expanded');
+    expect(source).toContain('aria-describedby');
+    expect(source).toContain('event.key === "Escape"');
+    expect(source).toContain('key === "completeMissingQuotes" || key === "completeMissingQuotesByParagraph"');
+    expect(source).not.toMatch(/key === "normalizeStraightQuotes"\s*\|\|\s*key === "convertCornerQuotesToCurly"/);
+    expect(source).toMatch(/changedKey === "completeMissingQuotes"\)\s*\{\s*disable\("completeMissingQuotesByParagraph"\)/);
+    expect(source).toMatch(/changedKey === "completeMissingQuotesByParagraph"\)\s*\{\s*disable\("completeMissingQuotes"\)/);
+    expect(styles).not.toContain('.cw-format-rule-description');
+    expect(styles).toContain('.cw-format-rule-help');
+    expect(styles).toContain('.cw-format-rule-tooltip');
+    expect(styles).toMatch(/\.cw-format-rule-help:hover\s*\+\s*\.cw-format-rule-tooltip/s);
+    expect(styles).toMatch(/\.cw-format-rule-help:focus-visible\s*\+\s*\.cw-format-rule-tooltip/s);
+    expect(styles).toContain('.cw-format-check-option.is-help-open .cw-format-rule-tooltip');
+  });
 
   it("separates preset management and keeps saved actions in the intended hierarchy", () => {
     expect(source).toContain("cw-format-preset-management");

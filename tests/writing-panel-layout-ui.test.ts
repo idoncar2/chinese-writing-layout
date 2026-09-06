@@ -10,6 +10,10 @@ describe("writing panel layout font UI", () => {
     expect(source).toContain("getCurrentLayoutSourceStatus");
     expect(source).toContain("cw-panel-layout-source");
     expect(source).toContain('text: `版式来源：${layoutSourceStatus}`');
+    expect(source).toContain('noteCard.createEl("a", {');
+    expect(source).toContain('href: "#cw-panel-layout-scope"');
+    expect(source).toContain("event.preventDefault();");
+    expect(source).not.toContain('noteCard.createEl("button", {\n      text: `版式来源：${layoutSourceStatus}`');
     expect(source).not.toContain("cw-panel-layout-source-arrow");
     expect(source).not.toContain("cw-panel-layout-source-label");
     expect(source).toContain('"aria-label": `当前版式来源：${layoutSourceStatus}；点击前往版式微调`');
@@ -23,8 +27,8 @@ describe("writing panel layout font UI", () => {
     expect(source).not.toContain('scope.scrollIntoView({ behavior: "smooth"');
     expect(source).toContain('scope.addClass("is-located")');
     expect(styles).toContain(".cw-panel-layout-source:focus-visible");
-    expect(styles).toMatch(/\.cw-panel-layout-source\s*\{[^}]*appearance:\s*none;[^}]*background:\s*none;/s);
-    expect(styles).toMatch(/\.cw-panel-layout-source\s*\{[^}]*border:\s*0\s*!important;[^}]*box-shadow:\s*none\s*!important;/s);
+    expect(styles).toMatch(/\.cw-panel-layout-source\s*\{[^}]*text-decoration:\s*none;/s);
+    expect(styles).not.toMatch(/\.cw-panel-layout-source\s*\{[^}]*(?:background|border|box-shadow|border-radius):/s);
     expect(styles).toMatch(/\.cw-panel-note-card\s*\{[^}]*border:\s*0;/s);
     expect(styles).toContain(".cw-panel-layout-scope.is-located");
     expect(styles).toContain("prefers-reduced-motion: reduce");
