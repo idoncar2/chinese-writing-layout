@@ -124,6 +124,6 @@ describe("font picker presentation and interaction", () => {
     expect(source).toContain("getSystemFontDisplayName");
     expect(source).toContain("当前设备候选：");
     expect(source).toContain("这里填写的是优先字体；当前设备未安装时会自动回退。");
-    expect(source).toContain('if (selection.source === "obsidian") return "跟随 Obsidian";');
+    expect(source).toContain('if (selection.source === "obsidian") return "跟随 Obsidian 字体";');
   });
 });

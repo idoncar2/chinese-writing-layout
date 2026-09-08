@@ -21,6 +21,7 @@ describe("settings page layout", () => {
     expect(source).toContain("外观与界面");
     expect(source).toContain("写作范围与自动套用");
     expect(source).toContain("正文排版");
+    expect(source).toContain("标题与重点颜色");
     expect(source).toContain("写作辅助");
     expect(source).toContain("CSS Classes 兼容设置");
     expect(source).toContain("恢复全部插件设置");

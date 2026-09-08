@@ -17,7 +17,7 @@ export function getFontSelectionDisplayName(
   userFonts: readonly UserFont[] = [],
   builtinFonts: readonly BuiltinFontOption[] = BUILTIN_FONT_OPTIONS,
 ): string {
-  if (selection.source === "obsidian") return "跟随 Obsidian";
+  if (selection.source === "obsidian") return "跟随 Obsidian 字体";
   if (selection.source === "inherit") return "跟随正文";
   if (selection.source === "builtin") {
     return builtinFonts.find((font) => font.id === selection.id)?.name ?? selection.id;
@@ -193,7 +193,7 @@ export class FontPickerModal extends Modal {
 
     this.renderChoiceSection(
       this.sourceListEl,
-      "跟随 Obsidian",
+      "跟随 Obsidian 字体",
       "交给当前主题和 Obsidian 的字体设置。",
       [{ source: "obsidian", id: this.roleLabel === "标题" ? "heading" : "text" }],
     );

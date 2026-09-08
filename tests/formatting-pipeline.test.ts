@@ -7,7 +7,7 @@ import {
 } from "../src/types";
 
 describe("applyFormattingPipeline", () => {
-  it("repairs only pairs that actually contain misplaced boundary whitespace", () => {
+  it("repairs misplaced internal whitespace and bold spans glued to prose", () => {
     const source = [
       "合法正文**文字**继续",
       "**文字 **正文",
@@ -21,7 +21,7 @@ describe("applyFormattingPipeline", () => {
       DEFAULT_FORMATTING_RULE_ORDER,
       { ...DEFAULT_MARKDOWN_FORMATTING_OPTIONS, mode: "repair" },
     )).toBe([
-      "合法正文**文字**继续",
+      "合法正文 **文字** 继续",
       "**文字** 正文",
       "正文 **文字**",
       "**你好**，世界",

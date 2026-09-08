@@ -125,6 +125,8 @@ export interface FormattingRules {
   trimDocumentBlankLines: boolean;
   collapseBlankLines: boolean;
   ensureBlankLineBetweenParagraphs: boolean;
+  ensureBlankLineAfterHeadings: boolean;
+  normalizeChapterHeadingFormat: boolean;
   removeAllBlankLines: boolean;
   collapseRepeatedSpaces: boolean;
   removeSpacesBetweenChinese: boolean;
@@ -148,6 +150,7 @@ export interface FormattingRules {
 export type FormattingRuleKey = keyof FormattingRules;
 
 export type MarkdownHandlingMode = "none" | "repair" | "strip";
+export type ChapterHeadingFormat = "arabic-unit" | "chinese-unit" | "chinese-parenthesized" | "arabic-list";
 
 export interface MarkdownRepairOptions {
   bold: boolean;
@@ -164,6 +167,7 @@ export interface MarkdownRepairOptions {
 
 export interface MarkdownFormattingOptions {
   mode: MarkdownHandlingMode;
+  chapterHeadingFormat: ChapterHeadingFormat;
   /** Protect Markdown syntax while applying ordinary text rules. */
   protectSyntax: boolean;
   repair: MarkdownRepairOptions;
@@ -183,6 +187,7 @@ export const DEFAULT_MARKDOWN_REPAIR_OPTIONS: MarkdownRepairOptions = {
 
 export const DEFAULT_MARKDOWN_FORMATTING_OPTIONS: MarkdownFormattingOptions = {
   mode: "none",
+  chapterHeadingFormat: "arabic-unit",
   protectSyntax: true,
   repair: { ...DEFAULT_MARKDOWN_REPAIR_OPTIONS },
 };
@@ -199,6 +204,11 @@ export function normalizeMarkdownFormattingOptions(value: unknown): MarkdownForm
     : "none";
   return {
     mode,
+    chapterHeadingFormat: candidate.chapterHeadingFormat === "chinese-unit"
+      || candidate.chapterHeadingFormat === "chinese-parenthesized"
+      || candidate.chapterHeadingFormat === "arabic-list"
+      ? candidate.chapterHeadingFormat
+      : "arabic-unit",
     protectSyntax: typeof candidate.protectSyntax === "boolean"
       ? candidate.protectSyntax
       : DEFAULT_MARKDOWN_FORMATTING_OPTIONS.protectSyntax,
@@ -266,6 +276,7 @@ export interface LayoutPresetValues {
   leftMargin: number;
   rightMargin: number;
   paperTheme: PaperTheme;
+  colorSource: LayoutColorSource;
   customPaperImage: string;
   justifyText: boolean;
 }
@@ -275,6 +286,8 @@ export interface LayoutPresetValues {
  * 未出现的字段必须完全交给 Obsidian 的原生 CSS 处理。
  */
 export type LayoutPresetOverrides = Partial<LayoutPresetValues>;
+
+export type LayoutColorSource = "layout" | "obsidian";
 
 export interface CustomLayoutPreset {
   id: string;
@@ -360,6 +373,7 @@ export interface ChineseWritingSettings {
   leftMargin: number;
   rightMargin: number;
   paperTheme: PaperTheme;
+  colorSource: LayoutColorSource;
   customPaperImage: string;
   justifyText: boolean;
   centerHeadings: boolean;
@@ -377,6 +391,8 @@ export interface ChineseWritingSettings {
   /** Runtime entry behavior only; it must never overwrite typewriterMode. */
   autoTypewriterOnWritingMode: boolean;
   autoPairChineseQuotes: boolean;
+  showScrollToTop: boolean;
+  showScrollToBottom: boolean;
   autoFormatOnManualWritingMode: boolean;
   typewriterCursorPosition: number;
   highlightCurrentLine: boolean;
@@ -415,6 +431,8 @@ export const DEFAULT_FORMATTING_RULES: FormattingRules = {
   trimDocumentBlankLines: true,
   collapseBlankLines: true,
   ensureBlankLineBetweenParagraphs: true,
+  ensureBlankLineAfterHeadings: false,
+  normalizeChapterHeadingFormat: false,
   removeAllBlankLines: false,
   collapseRepeatedSpaces: true,
   removeSpacesBetweenChinese: true,
@@ -441,6 +459,8 @@ export const DEFAULT_FORMATTING_RULE_ORDER: FormattingRuleKey[] = [
   "trimDocumentBlankLines",
   "collapseBlankLines",
   "ensureBlankLineBetweenParagraphs",
+  "ensureBlankLineAfterHeadings",
+  "normalizeChapterHeadingFormat",
   "removeAllBlankLines",
   "collapseRepeatedSpaces",
   "removeSpacesBetweenChinese",
@@ -493,6 +513,7 @@ export const DEFAULT_SETTINGS: ChineseWritingSettings = {
   leftMargin: 0,
   rightMargin: 0,
   paperTheme: "warm",
+  colorSource: "layout",
   customPaperImage: "",
   justifyText: true,
   centerHeadings: false,
@@ -506,6 +527,8 @@ export const DEFAULT_SETTINGS: ChineseWritingSettings = {
   documentTypewriterModes: {},
   autoTypewriterOnWritingMode: false,
   autoPairChineseQuotes: true,
+  showScrollToTop: true,
+  showScrollToBottom: true,
   autoFormatOnManualWritingMode: false,
   typewriterCursorPosition: 50,
   highlightCurrentLine: false,

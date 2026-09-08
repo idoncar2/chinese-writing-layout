@@ -288,7 +288,14 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     this.registerModuleApi();
     this.addSettingTab(new ChineseWritingSettingTab(this.app, this));
     this.registerEditorExtension(
-      createWritingEditorExtension(() => this.settings.autoPairChineseQuotes, setIcon),
+      createWritingEditorExtension(
+        () => this.settings.autoPairChineseQuotes,
+        () => ({
+          showScrollToTop: this.settings.showScrollToTop,
+          showScrollToBottom: this.settings.showScrollToBottom,
+        }),
+        setIcon,
+      ),
     );
     this.registerMarkdownPostProcessor((element, context) => {
       const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
@@ -759,6 +766,10 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       autoTypewriterOnWritingMode: writingModeSettings.autoTypewriterOnWritingMode,
       autoPairChineseQuotes: typeof stored?.autoPairChineseQuotes === "boolean"
         ? stored.autoPairChineseQuotes : DEFAULT_SETTINGS.autoPairChineseQuotes,
+      showScrollToTop: typeof stored?.showScrollToTop === "boolean"
+        ? stored.showScrollToTop : DEFAULT_SETTINGS.showScrollToTop,
+      showScrollToBottom: typeof stored?.showScrollToBottom === "boolean"
+        ? stored.showScrollToBottom : DEFAULT_SETTINGS.showScrollToBottom,
       bodyFont: normalizedFontSettings.bodyFont,
       headingFont: normalizedFontSettings.headingFont,
       quoteFont: normalizedFontSettings.quoteFont,
@@ -2123,6 +2134,10 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       this.applyLayoutVariables(container, layout, followObsidian, overrides);
       container.classList.toggle("cw-novel-enabled", enabled);
       container.classList.toggle("cw-follow-obsidian", enabled && followObsidian);
+      container.classList.toggle(
+        "cw-color-source-obsidian",
+        enabled && !followObsidian && layout.colorSource === "obsidian",
+      );
       container.classList.toggle(
         "cw-custom-horizontal-margins",
         enabled && (followObsidian

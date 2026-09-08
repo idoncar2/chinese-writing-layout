@@ -13,6 +13,12 @@ describe("Obsidian typography baseline", () => {
     expect(getObsidianFontDisplayName('"Obsidian Sans", sans-serif')).toBe("Obsidian Sans");
   });
 
+  it("shows a semantic name for platform system font aliases", () => {
+    expect(getObsidianFontDisplayName(
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    )).toBe("系统默认字体 +2");
+  });
+
   it("prefers Obsidian's editor font variable over a plugin fallback font", () => {
     const obsidianFontFamily = '"Obsidian Editor", sans-serif';
     vi.stubGlobal("getComputedStyle", () => ({

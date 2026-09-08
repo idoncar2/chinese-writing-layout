@@ -16,4 +16,11 @@ describe("Obsidian native article title", () => {
       ".workspace-leaf-content.cw-novel-enabled.cw-follow-obsidian .inline-title {",
     );
   });
+
+  it("supports opting headings and bold text into Obsidian theme colors", () => {
+    const styles = readFileSync(resolve("styles.css"), "utf8");
+    expect(styles).toContain("cw-color-source-obsidian");
+    expect(styles).toContain("--h1-color");
+    expect(styles).toContain("--text-accent");
+  });
 });

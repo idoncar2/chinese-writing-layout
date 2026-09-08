@@ -17,7 +17,7 @@ describe("automatic Chinese quote pairs", () => {
     expect(createQuoteJump(paired, false)).toBeNull();
     expect(readFileSync("src/settings.ts", "utf8")).toContain('.setName("中文引号自动配对")');
     expect(readFileSync("src/main.ts", "utf8"))
-      .toContain('createWritingEditorExtension(() => this.settings.autoPairChineseQuotes, setIcon)');
+      .toContain('() => this.settings.autoPairChineseQuotes,');
   });
   it.each([["“", "”"], ["‘", "’"]])("pairs %s in one transaction", (open, close) => {
     const original = state();

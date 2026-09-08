@@ -57,6 +57,7 @@ export function captureLayoutPreset(
     leftMargin: settings.leftMargin,
     rightMargin: settings.rightMargin,
     paperTheme: settings.paperTheme,
+    colorSource: settings.colorSource,
     customPaperImage: settings.customPaperImage,
     justifyText: settings.justifyText,
   };
@@ -118,6 +119,7 @@ export function normalizeLayoutPresetValues(
     leftMargin: normalizeNumber(values?.leftMargin, DEFAULT_SETTINGS.leftMargin, 0, 12, 0.5),
     rightMargin: normalizeNumber(values?.rightMargin, DEFAULT_SETTINGS.rightMargin, 0, 12, 0.5),
     paperTheme: normalizePaperTheme(values?.paperTheme),
+    colorSource: values?.colorSource === "obsidian" ? "obsidian" : DEFAULT_SETTINGS.colorSource,
     customPaperImage: typeof values?.customPaperImage === "string"
       ? values.customPaperImage
       : DEFAULT_SETTINGS.customPaperImage,

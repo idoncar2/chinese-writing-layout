@@ -100,6 +100,34 @@ describe("applyMarkdownFormatting", () => {
     ].join("\n"));
   });
 
+  it("adds spaces outside complete bold spans when copied Chinese text is glued together", () => {
+    const source = [
+      "**你觉得“这才是他们”的正文。**不一定是重大转折。",
+      "前文**重点内容。**后文",
+      "**已有边界。** 后文",
+      "前文 **已有边界。**",
+      "标点：**重点。**，后文",
+    ].join("\n");
+    const options = { ...DEFAULT_MARKDOWN_FORMATTING_OPTIONS, mode: "repair" as const };
+    const repaired = applyMarkdownFormatting(source, options);
+    expect(repaired).toBe([
+      "**你觉得“这才是他们”的正文。** 不一定是重大转折。",
+      "前文 **重点内容。** 后文",
+      "**已有边界。** 后文",
+      "前文 **已有边界。**",
+      "标点：**重点。**，后文",
+    ].join("\n"));
+    expect(applyMarkdownFormatting(repaired, options)).toBe(repaired);
+  });
+
+  it("keeps incomplete and protected bold markers unchanged", () => {
+    const source = "---\ntitle: **标题。**正文\n---\n`**代码。**正文`\n```\n**代码块。**正文\n```\n残缺**粗体";
+    expect(applyMarkdownFormatting(source, {
+      ...DEFAULT_MARKDOWN_FORMATTING_OPTIONS,
+      mode: "repair",
+    })).toBe(source);
+  });
+
   it("strips visible Markdown while preserving YAML and fenced code", () => {
     const source = [
       "---",

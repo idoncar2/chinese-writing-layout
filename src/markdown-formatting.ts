@@ -23,7 +23,11 @@ function isNoSpaceBefore(character: string | undefined): boolean {
     || "（【《([{<“‘，。！？；：、,.!?;:)]}》】”’".includes(character);
 }
 
-function repairDelimitedPair(line: string, marker: string): string {
+function repairDelimitedPair(
+  line: string,
+  marker: string,
+  repairExternalBoundaries = false,
+): string {
   const escaped = escapeRegExp(marker);
   const contentCharacter = marker[0] === "~" ? "~" : marker[0];
   const boundary = marker.length === 1 ? `(?<!${escaped})${escaped}(?!${escaped})` : escaped;
@@ -39,19 +43,21 @@ function repairDelimitedPair(line: string, marker: string): string {
     offset: number,
     source: string,
   ) => {
-    if (!leading && !trailing) return whole;
+    if (!repairExternalBoundaries && !leading && !trailing) return whole;
     const trimmed = content.trim();
     if (!trimmed || trimmed.includes(marker)) return whole;
     const before = source[offset - 1];
     const after = source[offset + whole.length];
-    const prefix = leading && before && !isNoSpaceBefore(before) ? " " : "";
-    const suffix = trailing && after && !isNoSpaceAfter(after) ? " " : "";
+    const prefix = (repairExternalBoundaries || leading)
+      && before && !isNoSpaceBefore(before) ? " " : "";
+    const suffix = (repairExternalBoundaries || trailing)
+      && after && !isNoSpaceAfter(after) ? " " : "";
     return `${prefix}${marker}${trimmed}${marker}${suffix}`;
   });
 }
 
 function repairStrong(line: string): string {
-  return repairDelimitedPair(repairDelimitedPair(line, "**"), "__");
+  return repairDelimitedPair(repairDelimitedPair(line, "**", true), "__", true);
 }
 
 function repairItalic(line: string): string {
@@ -160,20 +166,34 @@ function stripPrefix(line: string): string {
   }
   result = result.replace(/^(?:(?:[ \t]{0,3}>+)[ \t]?)+/, "");
   result = result.replace(
-    /^[ \t]{0,3}(?:[-+*](?=[ \t]|\[[ xX]\])|\d+[.)](?=[ \t]))[ \t]*(?:\[[ xX]\][ \t]*)?/,
+    /^[ \t]*(?:[-+*](?=[ \t]|\[[ xX]\])|\d+[.)](?=[ \t]))[ \t]*(?:\[[ xX]\][ \t]*)?/,
     "",
   );
-  return result;
+  return result
+    .replace(/^\[![\w-]+\][+-]?(?:[ \t]+|$)/, "")
+    .replace(/^[ \t]*\[\^[^\]\n]+\]:[ \t]*/, "");
 }
 
 /** Remove common inline Markdown while retaining the text a reader sees. */
-export function stripInlineMarkdown(text: string): string {
-  let result = stripPrefix(text);
+export function stripInlineMarkdown(text: string, tableRow = false): string {
+  let result = text;
   const codeValues: string[] = [];
+  const protect = (content: string): string => `\uE100${codeValues.push(content) - 1}\uE101`;
   result = replaceInlineCodeSpans(result, (_whole, content) => {
-    const index = codeValues.push(content) - 1;
-    return `\uE100${index}\uE101`;
+    return protect(content);
   });
+  result = result.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\]\\^_`{|}~])/g, (_whole, literal: string) => protect(literal));
+  result = stripPrefix(result);
+  result = result.replace(/%%.*?%%/g, "")
+    .replace(/\$\$(.+?)\$\$/g, (_whole, content: string) => protect(content))
+    .replace(/(?<!\$)\$(?![\s$])([^$\n]*?\S)\$(?![\d$])/g, (_whole, content: string) => protect(content))
+    .replace(/\[\^[^\]\n]+\]/g, "");
+  if (tableRow) {
+    // Protect wiki aliases before splitting the actual table delimiters.
+    result = result.replace(/!?\[\[([^\]\n]+)\]\]/g, (_whole, body: string) => protect(stripInlineMarkdown(`[[${body}]]`)));
+    result = result.trim().replace(/^\|/, "").replace(/\|$/, "")
+      .split("|").map((cell) => cell.trim()).join("\t");
+  }
   for (let pass = 0; pass < 3; pass += 1) {
     const previous = result;
     result = result
@@ -184,6 +204,7 @@ export function stripInlineMarkdown(text: string): string {
       .replace(/`+([^`\n]*?)`+/g, "$1")
       .replace(/(\*\*|__)\s*([^\n]*?\S)\s*\1/g, "$2")
       .replace(/~~\s*([^\n]*?\S)\s*~~/g, "$1")
+      .replace(/==([^=\n]+)==/g, "$1")
       .replace(/(?<!\*)\*\s*([^*\n]*?\S)\s*\*(?!\*)/g, "$1")
       .replace(/(?<!_)_\s*([^_\n]*?\S)\s*_(?!_)/g, "$1");
     if (result === previous) break;
@@ -192,9 +213,53 @@ export function stripInlineMarkdown(text: string): string {
   return result.replace(/[ \t]{2,}$/u, "").replace(/[ \t]+$/u, "");
 }
 
+/** Document-level syntax needs state; both formatting and export use this path. */
+export function stripMarkdownLines(lines: readonly string[], preserveProtected = true): string[] {
+  let fence = "";
+  let frontmatter = preserveProtected && lines[0]?.trim() === "---";
+  let comment = false;
+  let math = false;
+  let table = false;
+  const separator = (line: string): boolean => /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+  return lines.map((raw, index) => {
+    if (frontmatter) {
+      if (index > 0 && raw.trim() === "---") frontmatter = false;
+      return raw;
+    }
+    if (fence) {
+      if (new RegExp(`^[ \\t]*${fence[0]}{${fence.length},}[ \\t]*$`).test(raw)) {
+        fence = "";
+        return preserveProtected ? raw : "";
+      }
+      return raw;
+    }
+    if (!comment && !math) {
+      const opening = /^[ \t]*(`{3,}|~{3,})/.exec(raw);
+      if (opening) { fence = opening[1]; return preserveProtected ? raw : ""; }
+    }
+    if (!comment && raw.trim() === "$$") { math = !math; return ""; }
+    if (math) return raw;
+    // Hide code while scanning comments, so literal %% does not open a comment.
+    const codes: string[] = [];
+    let line = replaceInlineCodeSpans(raw, (whole) => `\uE200${codes.push(whole) - 1}\uE201`);
+    let visible = "";
+    let cursor = 0;
+    for (const match of line.matchAll(/(?<!\\)%%/g)) {
+      if (!comment) visible += line.slice(cursor, match.index);
+      comment = !comment;
+      cursor = match.index! + 2;
+    }
+    if (!comment) visible += line.slice(cursor);
+    line = visible.replace(/\uE200(\d+)\uE201/g, (_whole, key: string) => codes[Number(key)]);
+    if (separator(line)) { table = true; return ""; }
+    table = (table && line.includes("|")) || separator(lines[index + 1] ?? "");
+    return table ? stripInlineMarkdown(line, true) : stripMarkdownLine(line);
+  });
+}
+
 function stripMarkdownLine(line: string): string {
   if (/^[ \t]*(?:---+|___+|\*\*\*+)[ \t]*$/.test(line)) return "";
-  return stripInlineMarkdown(stripPrefix(line));
+  return stripInlineMarkdown(line);
 }
 
 export function applyMarkdownFormatting(
@@ -205,10 +270,10 @@ export function applyMarkdownFormatting(
   if (normalized.mode === "none") return text;
   const newline = text.includes("\r\n") ? "\r\n" : "\n";
   const lines = text.split(/\r?\n/);
+  if (normalized.mode === "strip") return stripMarkdownLines(lines).join(newline);
   const contexts = getMarkdownLineContexts(lines);
   return lines.map((line, index) => {
     if (contexts[index].stronglyProtected) return line;
-    if (normalized.mode === "strip") return stripMarkdownLine(line);
     return repairMarkdownLine(line, normalized);
   }).join(newline);
 }

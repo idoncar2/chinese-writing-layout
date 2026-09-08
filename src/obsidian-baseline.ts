@@ -3,7 +3,7 @@
  * 仅用于显示参考，不会写入插件 settings。
  */
 
-import { extractFontFamilyNames } from "./system-fonts";
+import { extractFontFamilyNames, getSystemFontDisplayName } from "./system-fonts";
 
 export interface ObsidianTypographyBaseline {
   /** 正文字号（px） */
@@ -58,7 +58,8 @@ export function getObsidianFontDisplayName(fontFamily: string): string {
   const names = extractFontFamilyNames(fontFamily)
     .filter((name) => !/^\?+$/u.test(name));
   if (names.length === 0) return "默认";
-  return names.length === 1 ? names[0]! : `${names[0]} +${names.length - 1}`;
+  const primaryName = getSystemFontDisplayName(names[0]!);
+  return names.length === 1 ? primaryName : `${primaryName} +${names.length - 1}`;
 }
 
 function parseCssNumber(value: string, fallback: number): number {

@@ -138,6 +138,47 @@ describe("applyFormattingRules", () => {
     ])).toBe("中文 English");
   });
 
+  it("adds one blank line between a Markdown heading and following prose only", () => {
+    const source = [
+      "# 第一章",
+      "正文。",
+      "",
+      "## 已有空行",
+      "",
+      "正文。",
+      "### 连续标题",
+      "#### 下一标题",
+      "- 列表",
+      "> 引用",
+      "---",
+      "```text",
+      "代码",
+      "```",
+    ].join("\n");
+    const rules = {
+      ...noRules,
+      ensureBlankLineAfterHeadings: true,
+    } as FormattingRules & { ensureBlankLineAfterHeadings: boolean };
+
+    expect(applyFormattingRules(source, rules)).toBe([
+      "# 第一章",
+      "",
+      "正文。",
+      "",
+      "## 已有空行",
+      "",
+      "正文。",
+      "### 连续标题",
+      "#### 下一标题",
+      "- 列表",
+      "> 引用",
+      "---",
+      "```text",
+      "代码",
+      "```",
+    ].join("\n"));
+  });
+
   it("formats visible Markdown bodies without changing protected syntax", () => {
     const source = "## 标题  内容 [链接 文字](https://example.com/a  b) [[目标  页面|别名 文字]] **粗 体**";
     const result = applyFormattingRules(source, {

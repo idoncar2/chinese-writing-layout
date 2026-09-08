@@ -69,6 +69,7 @@ describe("layout presets", () => {
       leftMargin: 1.5,
       rightMargin: 2.5,
       paperTheme: "rose",
+      colorSource: DEFAULT_SETTINGS.colorSource,
       customPaperImage: "",
       justifyText: true,
     });

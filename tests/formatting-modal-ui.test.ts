@@ -104,6 +104,15 @@ describe("formatting modal compact controls", () => {
     expect(styles).toContain("cw-format-markdown-protection");
   });
 
+  it("shows one chapter-heading rule with a saved target-format selector", () => {
+    expect(source).toContain('"normalizeChapterHeadingFormat"');
+    expect(source).toContain("chapterHeadingFormat");
+    expect(source).toContain("目标格式");
+    for (const label of ["第12章", "第十二章", "（十二）", "12、"]) {
+      expect(source).toContain(label);
+    }
+  });
+
   it("places syntax protection before the explicitly labelled handling modes", () => {
     expect(source).toContain("处理方式");
     expect(source.indexOf("cw-format-markdown-protection"))

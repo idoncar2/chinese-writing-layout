@@ -335,6 +335,19 @@ export class ChineseWritingSettingTab extends PluginSettingTab {
     justifySetting.settingEl.dataset.cwLayoutSettingKey = "justifyText";
 
     const paperGroup = this.createSettingsGroup(section, "纸张");
+    const colorSourceSetting = new Setting(paperGroup)
+      .setName("标题与重点颜色")
+      .setDesc("正文颜色仍由纸张主题决定；这里单独选择标题和粗体的颜色来源。")
+      .addDropdown((dropdown) => dropdown
+        .addOption("layout", "跟随当前版式")
+        .addOption("obsidian", "跟随 Obsidian 主题")
+        .setValue(this.plugin.getGlobalLayoutSettings().colorSource)
+        .onChange(async (value) => {
+          this.plugin.markGlobalLayoutPresetEdited();
+          this.plugin.previewGlobalLayoutSettings({ colorSource: value as "layout" | "obsidian" });
+          await this.plugin.saveAndApplySettings();
+        }));
+    colorSourceSetting.settingEl.dataset.cwLayoutSettingKey = "colorSource";
     let paperThemeSelect: HTMLSelectElement | undefined;
     const paperThemeSetting = new Setting(paperGroup)
       .setName("纸张主题")
@@ -447,6 +460,26 @@ export class ChineseWritingSettingTab extends PluginSettingTab {
       );
 
     const assistanceGroup = this.createSettingsGroup(section, "常规辅助");
+    new Setting(assistanceGroup)
+      .setName("显示滚动到顶部按钮")
+      .setDesc("在正文离顶部较远时显示悬浮按钮。")
+      .addToggle((toggle) => toggle
+        .setValue(this.plugin.settings.showScrollToTop)
+        .onChange(async (value) => {
+          this.plugin.settings.showScrollToTop = value;
+          await this.plugin.saveAndApplySettings();
+          document.dispatchEvent(new Event("cw-editor-navigation-change"));
+        }));
+    new Setting(assistanceGroup)
+      .setName("显示滚动到底部按钮")
+      .setDesc("在正文离底部较远时显示悬浮按钮。")
+      .addToggle((toggle) => toggle
+        .setValue(this.plugin.settings.showScrollToBottom)
+        .onChange(async (value) => {
+          this.plugin.settings.showScrollToBottom = value;
+          await this.plugin.saveAndApplySettings();
+          document.dispatchEvent(new Event("cw-editor-navigation-change"));
+        }));
     new Setting(assistanceGroup)
       .setName("中文引号自动配对")
       .setDesc("输入 “ 或 ‘ 时补齐右引号；紧挨自动补出的右引号时，Enter 先跳出，再按一次换行。关闭后恢复编辑器原有行为，无需重启。")
@@ -647,6 +680,12 @@ export class ChineseWritingSettingTab extends PluginSettingTab {
     );
     const paperThemeSelect = paperThemeSetting?.querySelector<HTMLSelectElement>("select");
     if (paperThemeSelect) paperThemeSelect.value = layout.paperTheme;
+
+    const colorSourceSetting = this.containerEl.querySelector<HTMLElement>(
+      '[data-cw-layout-setting-key="colorSource"]',
+    );
+    const colorSourceSelect = colorSourceSetting?.querySelector<HTMLSelectElement>("select");
+    if (colorSourceSelect) colorSourceSelect.value = layout.colorSource;
 
     const customPaperSetting = this.containerEl.querySelector<HTMLElement>(
       '[data-cw-layout-setting-key="customPaperImage"]',

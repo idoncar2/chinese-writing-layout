@@ -15,6 +15,7 @@ import {
   DEFAULT_MARKDOWN_FORMATTING_OPTIONS,
   normalizeMarkdownFormattingOptions,
   type BuiltinFormattingPresetId,
+  type ChapterHeadingFormat,
   type FormattingPresetId,
   type FormattingRuleKey,
   type FormattingRules,
@@ -35,6 +36,13 @@ const MARKDOWN_MODE_OPTIONS: Array<{
   { value: "none", label: "不处理" },
   { value: "repair", label: "修复 Markdown" },
   { value: "strip", label: "移除 Markdown" },
+];
+
+const CHAPTER_HEADING_FORMAT_OPTIONS: Array<{ value: ChapterHeadingFormat; label: string }> = [
+  { value: "arabic-unit", label: "第12章" },
+  { value: "chinese-unit", label: "第十二章" },
+  { value: "chinese-parenthesized", label: "（十二）" },
+  { value: "arabic-list", label: "12、" },
 ];
 
 const MARKDOWN_REPAIR_OPTIONS: Array<{
@@ -61,6 +69,7 @@ function cloneMarkdownFormatting(
   const normalized = normalizeMarkdownFormattingOptions(options);
   return {
     mode: normalized.mode,
+    chapterHeadingFormat: normalized.chapterHeadingFormat,
     protectSyntax: normalized.protectSyntax,
     repair: { ...normalized.repair },
   };
@@ -342,6 +351,22 @@ export class FormattingModal extends Modal {
             ? definition.description
             : undefined,
         );
+        if (key === "normalizeChapterHeadingFormat" && this.rules[key]) {
+          const target = options.createEl("label", { cls: "cw-format-rule-target" });
+          target.createSpan({ text: "目标格式" });
+          const select = target.createEl("select");
+          for (const option of CHAPTER_HEADING_FORMAT_OPTIONS) {
+            select.createEl("option", { text: option.label, value: option.value });
+          }
+          select.value = this.markdownFormatting.chapterHeadingFormat;
+          select.addEventListener("change", () => {
+            this.markdownFormatting = {
+              ...this.markdownFormatting,
+              chapterHeadingFormat: select.value as ChapterHeadingFormat,
+            };
+            this.markAsEdited();
+          });
+        }
       }
     }
   }
@@ -549,8 +574,12 @@ export class FormattingModal extends Modal {
     } else if (changedKey === "completeMissingQuotesByParagraph") {
       disable("completeMissingQuotes");
     } else if (changedKey === "removeAllBlankLines") {
-      disable("collapseBlankLines", "ensureBlankLineBetweenParagraphs");
-    } else if (changedKey === "collapseBlankLines" || changedKey === "ensureBlankLineBetweenParagraphs") {
+      disable("collapseBlankLines", "ensureBlankLineBetweenParagraphs", "ensureBlankLineAfterHeadings");
+    } else if (
+      changedKey === "collapseBlankLines"
+      || changedKey === "ensureBlankLineBetweenParagraphs"
+      || changedKey === "ensureBlankLineAfterHeadings"
+    ) {
       disable("removeAllBlankLines");
     } else if (changedKey === "addSpacesBetweenChineseAndLatin") {
       disable("removeSpacesBetweenChineseAndLatin", "removeAllSpaces");

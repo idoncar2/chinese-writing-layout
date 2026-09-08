@@ -3,8 +3,10 @@ import {
   transformMarkdownText,
 } from "./markdown-protection";
 import { repairChineseQuotes } from "./quote-repair";
+import { normalizeChapterHeadingLine } from "./chapter-heading-format";
 import type {
   BuiltinFormattingPresetId,
+  ChapterHeadingFormat,
   FormattingRuleKey,
   FormattingRules,
 } from "./types";
@@ -34,6 +36,8 @@ export const FORMATTING_RULES: FormattingRuleDefinition[] = [
   { key: "trimDocumentBlankLines", label: "去掉文首与文末空行", description: "删除整篇正文最前面和最后面的多余空行。" },
   { key: "collapseBlankLines", label: "合并多个连续空行", description: "连续空行最多保留一个。" },
   { key: "ensureBlankLineBetweenParagraphs", label: "确保段落之间有一个空行", description: "在相邻正文段之间插入空行，不处理列表、标题和代码。" },
+  { key: "ensureBlankLineAfterHeadings", label: "章节标题和正文之间空一行", description: "在 Markdown 标题后紧接正文时插入一个空行；不处理连续标题、列表、引用和代码。" },
+  { key: "normalizeChapterHeadingFormat", label: "统一章节标题格式", description: "统一 Markdown 标题开头的章节编号，并保留后续标题文字。" },
   { key: "removeAllBlankLines", label: "移除所有正文空行", description: "生成紧凑正文；不会删除 YAML 和代码块内部的空行。" },
   { key: "collapseRepeatedSpaces", label: "合并多个连续空格", description: "正文中的连续空格合并为一个。" },
   { key: "removeSpacesBetweenChinese", label: "移除中文字符之间的空格", description: "例如“这 是 正文”和“你好 ，世界”会被正确合并。" },
@@ -57,7 +61,7 @@ export const FORMATTING_RULE_GROUPS: FormattingRuleGroup[] = [
   },
   {
     label: "空行",
-    keys: ["collapseBlankLines", "ensureBlankLineBetweenParagraphs", "removeAllBlankLines"],
+    keys: ["collapseBlankLines", "ensureBlankLineBetweenParagraphs", "ensureBlankLineAfterHeadings", "removeAllBlankLines"],
   },
   {
     label: "空格",
@@ -68,6 +72,10 @@ export const FORMATTING_RULE_GROUPS: FormattingRuleGroup[] = [
       "removeSpacesBetweenChineseAndLatin",
       "removeAllSpaces",
     ],
+  },
+  {
+    label: "标题",
+    keys: ["normalizeChapterHeadingFormat"],
   },
   {
     label: "段首",
@@ -158,7 +166,12 @@ function transformParagraphLines(
   );
 }
 
-function applyRule(lines: string[], key: FormattingRuleKey, protectSyntax: boolean): string[] {
+function applyRule(
+  lines: string[],
+  key: FormattingRuleKey,
+  protectSyntax: boolean,
+  chapterHeadingFormat: ChapterHeadingFormat,
+): string[] {
   const contexts = getMarkdownLineContexts(lines);
   const protectedLines = contexts.map((context) => context.stronglyProtected);
   switch (key) {
@@ -205,6 +218,21 @@ function applyRule(lines: string[], key: FormattingRuleKey, protectSyntax: boole
       }
       return spaced;
     }
+    case "ensureBlankLineAfterHeadings": {
+      const spaced: string[] = [];
+      for (let index = 0; index < lines.length; index += 1) {
+        spaced.push(lines[index]);
+        if (
+          contexts[index].kind === "heading"
+          && contexts[index + 1]?.kind === "paragraph"
+        ) spaced.push("");
+      }
+      return spaced;
+    }
+    case "normalizeChapterHeadingFormat":
+      return lines.map((line, index) => contexts[index].kind === "heading"
+        ? normalizeChapterHeadingLine(line, chapterHeadingFormat)
+        : line);
     case "collapseRepeatedSpaces":
       return transformEditableLines(lines, (segment) => segment.replace(/[ \t　]{2,}/gu, " "), protectSyntax);
     case "removeSpacesBetweenChinese":
@@ -287,16 +315,22 @@ export function applyFormattingRules(
   text: string,
   rules: FormattingRules,
   order: readonly FormattingRuleKey[] = DEFAULT_FORMATTING_RULE_ORDER,
-  markdownFormatting?: { protectSyntax?: boolean; mode?: unknown; repair?: unknown },
+  markdownFormatting?: {
+    protectSyntax?: boolean;
+    mode?: unknown;
+    repair?: unknown;
+    chapterHeadingFormat?: ChapterHeadingFormat;
+  },
 ): string {
   const newline = text.includes("\r\n") ? "\r\n" : "\n";
   const protectSyntax = markdownFormatting?.protectSyntax !== false;
+  const chapterHeadingFormat = markdownFormatting?.chapterHeadingFormat ?? "arabic-unit";
   let lines = text.split(/\r?\n/);
   for (const key of normalizeRuleOrder(order)) {
     // Malformed/imported settings cannot enable the more aggressive mode
     // alongside conservative completion, regardless of execution order.
     if (key === "completeMissingQuotesByParagraph" && rules.completeMissingQuotes) continue;
-    if (rules[key]) lines = applyRule(lines, key, protectSyntax);
+    if (rules[key]) lines = applyRule(lines, key, protectSyntax, chapterHeadingFormat);
   }
   return lines.join(newline);
 }

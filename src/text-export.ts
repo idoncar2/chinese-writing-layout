@@ -1,4 +1,4 @@
-import { stripInlineMarkdown } from "./markdown-formatting";
+import { stripMarkdownLines } from "./markdown-formatting";
 import type { ExportFormat, ExportScope } from "./types";
 
 const FRONTMATTER_PATTERN = /^---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n|$)/;
@@ -131,23 +131,15 @@ export function markdownToExportBlocks(
     return normalizeExportBlocks(blocks);
   }
 
-  let inFence = false;
-
-  for (const rawLine of source.split(/\r?\n/)) {
-    if (/^[ \t]*(```+|~~~+)/.test(rawLine)) {
-      inFence = !inFence;
-      continue;
-    }
-    const heading = !inFence ? rawLine.match(/^[ \t]{0,3}(#{1,6})[ \t]+(.+)$/) : null;
+  const rawLines = source.split(/\r?\n/);
+  const plainLines = stripMarkdownLines(rawLines, false);
+  for (const [index, text] of plainLines.entries()) {
+    if (!text && /^[ \t]*(`{3,}|~{3,})/.test(rawLines[index])) continue;
+    const heading = text !== rawLines[index] ? rawLines[index].match(/^[ \t]{0,3}(#{1,6})[ \t]+(.+)$/) : null;
     if (heading) {
-      blocks.push({ kind: "heading", level: heading[1].length, text: stripInlineMarkdown(heading[2]).trim() });
+      blocks.push({ kind: "heading", level: heading[1].length, text: text.trim() });
       continue;
     }
-    if (!inFence && /^[ \t]*(?:---+|___+|\*\*\*+)[ \t]*$/.test(rawLine)) {
-      blocks.push({ kind: "blank", text: "" });
-      continue;
-    }
-    const text = stripInlineMarkdown(rawLine);
     blocks.push(text.trim() ? { kind: "paragraph", text } : { kind: "blank", text: "" });
   }
 

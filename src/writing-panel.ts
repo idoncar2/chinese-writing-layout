@@ -665,6 +665,22 @@ export class WritingPanelView extends ItemView {
       );
     });
 
+    const colorRow = section.createDiv({ cls: "cw-panel-control-row cw-panel-select-row" });
+    colorRow.createEl("label", { text: "标题与重点颜色" });
+    const colorSelect = colorRow.createEl("select");
+    colorSelect.createEl("option", { value: "layout", text: "跟随当前版式" });
+    colorSelect.createEl("option", { value: "obsidian", text: "跟随 Obsidian 主题" });
+    colorSelect.value = layout.colorSource;
+    colorSelect.addEventListener("change", () => {
+      void this.plugin.performLayoutChange(
+        { mergeKey: "field:colorSource", summary: { kind: "field", key: "colorSource" } },
+        () => {
+          this.markLayoutPresetEdited();
+          this.plugin.previewLayoutSettings({ colorSource: colorSelect.value as "layout" | "obsidian" });
+        },
+      );
+    });
+
     this.renderHeadingCenteringControls(section);
     this.addToggle(section, "两端对齐", "justifyText", "cw-panel-justify-row");
 
