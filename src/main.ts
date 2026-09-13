@@ -265,6 +265,8 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   private statusBarItem?: HTMLElement;
   private quickFormattingRibbon?: HTMLElement;
   private statusUpdateTimer?: number;
+  private viewRefreshTimer?: number;
+  private panelRefreshPending = false;
   private startupMarkdownSyncTimer?: number;
   private lastMarkdownLeaf?: WorkspaceLeaf;
   private lastLocalExportDirectory?: string;
@@ -272,7 +274,6 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   private readonly loadedUserFontFaces = new Map<string, FontFace>();
   private readonly availableUserFontIds = new Set<string>();
   private focusModeEnabled = false;
-  private focusExitButton?: HTMLButtonElement;
   private appliedTypewriterPosition?: number;
   private appliedTypewriterMode = false;
   private autoTypewriterSuppressedPath?: string;
@@ -457,27 +458,18 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
         if (leaf?.view instanceof MarkdownView) this.lastMarkdownLeaf = leaf;
-        this.syncAllViews();
-        this.scheduleStatusUpdate();
-        if (!(leaf?.view instanceof WritingPanelView)) {
-          this.refreshWritingPanels();
-        }
+        this.scheduleViewRefresh(!(leaf?.view instanceof WritingPanelView));
       }),
     );
     this.registerEvent(
       this.app.workspace.on("file-open", () => {
         const view = this.getWritingMarkdownView();
         if (view) this.lastMarkdownLeaf = view.leaf;
-        this.syncAllViews();
-        this.scheduleStatusUpdate();
-        this.refreshWritingPanels();
+        this.scheduleViewRefresh();
       }),
     );
     this.registerEvent(
-      this.app.workspace.on("layout-change", () => {
-        this.syncAllViews();
-        this.refreshWritingPanels();
-      }),
+      this.app.workspace.on("layout-change", () => this.scheduleViewRefresh()),
     );
     this.registerEvent(
       this.app.workspace.on("editor-change", () => this.scheduleStatusUpdate()),
@@ -531,9 +523,12 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       }),
     );
     this.registerEvent(
-      this.app.metadataCache.on("changed", () => {
-        this.syncAllViews();
-        this.scheduleStatusUpdate();
+      this.app.metadataCache.on("changed", (file) => {
+        // 启动索引也会通知未打开的笔记；它们不会改变当前视图的排版。
+        const isOpen = this.app.workspace.getLeavesOfType("markdown").some(
+          (leaf) => leaf.view instanceof MarkdownView && leaf.view.file?.path === file.path,
+        );
+        if (isOpen) this.scheduleViewRefresh();
       }),
     );
     this.registerEvent(
@@ -626,6 +621,9 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     }
     if (this.startupMarkdownSyncTimer !== undefined) {
       window.clearTimeout(this.startupMarkdownSyncTimer);
+    }
+    if (this.viewRefreshTimer !== undefined) {
+      window.clearTimeout(this.viewRefreshTimer);
     }
     this.removeGlobalStyles();
     this.unloadUserFonts();
@@ -2195,11 +2193,27 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     view.containerEl.style.removeProperty(FOCUS_CONTENT_WIDTH_VARIABLE);
   }
 
+  private scheduleViewRefresh(refreshPanels = true): void {
+    if (!this.app.workspace.layoutReady) return;
+    this.panelRefreshPending ||= refreshPanels;
+    if (this.viewRefreshTimer !== undefined) return;
+    // 同一轮文件切换通常同时触发 file-open、active-leaf-change 和 layout-change。
+    this.viewRefreshTimer = window.setTimeout(() => {
+      this.viewRefreshTimer = undefined;
+      const refreshPanels = this.panelRefreshPending;
+      this.panelRefreshPending = false;
+      this.syncAllViews();
+      this.updateStatusBar();
+      if (refreshPanels) this.refreshWritingPanels();
+    }, 16);
+  }
+
   private scheduleStatusUpdate(): void {
     if (this.statusUpdateTimer !== undefined) {
       window.clearTimeout(this.statusUpdateTimer);
     }
     this.statusUpdateTimer = window.setTimeout(() => {
+      this.statusUpdateTimer = undefined;
       this.updateStatusBar();
       this.refreshWritingPanels();
     }, 160);
@@ -2235,7 +2249,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       "cw-status-hidden",
       !this.settings.showStatusBar || !enabled,
     );
-    if (!view || !enabled) return;
+    if (!view || !enabled || !this.settings.showStatusBar) return;
 
     const text = view.editor.getValue();
     const wordCount = countWritingText(text, this.settings.countMode);
@@ -2572,24 +2586,6 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     this.focusModeEnabled = enabled;
     document.body.classList.toggle("cw-focus-mode", enabled);
     if (!enabled) this.clearFocusContentWidth();
-    this.focusExitButton?.remove();
-    this.focusExitButton = undefined;
-
-    if (enabled) {
-      const button = document.body.createEl("button", {
-        cls: "cw-focus-exit",
-        attr: {
-          type: "button",
-          "aria-label": "退出专注模式",
-          title: "退出专注模式（Esc）",
-        },
-      });
-      setIcon(button, "minimize-2");
-      button.createSpan({ text: "退出专注" });
-      button.addEventListener("click", () => this.toggleFocusMode(false));
-      this.focusExitButton = button;
-    }
-
     this.refreshWritingPanels();
     if (notify) new Notice(enabled ? "已进入专注模式，按 Esc 退出" : "已退出专注模式");
   }

@@ -80,6 +80,16 @@ describe("editor scroll-to-bottom control", () => {
     expect(styles).toMatch(/@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.cw-editor-scroll-bottom\s*\{[^}]*transition:\s*none/s);
   });
 
+  it("keeps the top and bottom controls together in the lower-right corner", () => {
+    const styles = readFileSync("styles.css", "utf8");
+    expect(styles).toMatch(
+      /\.cw-editor-scroll-top\s*\{[^}]*top:\s*auto;[^}]*bottom:\s*62px/s,
+    );
+    expect(styles).toMatch(
+      /@media \(max-width:\s*500px\)[\s\S]*?\.cw-editor-scroll-top\s*\{[^}]*top:\s*auto;[^}]*bottom:\s*calc\(64px \+ env\(safe-area-inset-bottom, 0px\)\)/s,
+    );
+  });
+
   it("enables both controls by default and exposes independent settings", () => {
     expect(DEFAULT_SETTINGS.showScrollToTop).toBe(true);
     expect(DEFAULT_SETTINGS.showScrollToBottom).toBe(true);

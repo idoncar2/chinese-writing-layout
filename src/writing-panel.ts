@@ -638,14 +638,19 @@ export class WritingPanelView extends ItemView {
     imageRow.createEl("label", { text: "背景图片" });
     const imageSelect = imageRow.createEl("select");
     imageSelect.createEl("option", { value: "", text: "不使用图片" });
-    for (const file of this.plugin.getAvailablePaperImages()) {
-      imageSelect.createEl("option", { value: file.path, text: file.path });
-    }
-    imageSelect.value = layout.customPaperImage;
-    imageRow.toggleClass("cw-panel-control-hidden", themeSelect.value !== "custom");
-    themeSelect.addEventListener("change", () => {
-      imageRow.toggleClass("cw-panel-control-hidden", themeSelect.value !== "custom");
-    });
+    let imagesLoaded = false;
+    const syncImageRow = (): void => {
+      const custom = themeSelect.value === "custom";
+      imageRow.toggleClass("cw-panel-control-hidden", !custom);
+      if (!custom || imagesLoaded) return;
+      for (const file of this.plugin.getAvailablePaperImages()) {
+        imageSelect.createEl("option", { value: file.path, text: file.path });
+      }
+      imageSelect.value = layout.customPaperImage;
+      imagesLoaded = true;
+    };
+    syncImageRow();
+    themeSelect.addEventListener("change", syncImageRow);
     imageSelect.addEventListener("change", () => {
       void this.plugin.performLayoutChange(
         {

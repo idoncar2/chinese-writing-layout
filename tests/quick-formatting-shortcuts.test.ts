@@ -83,13 +83,13 @@ describe("saved one-click formatting shortcuts", () => {
   });
 
   it("creates the optional ribbon only when enabled and appends it last", () => {
-    expect(mainSource).toMatch(/this\.addRibbonIcon\(\r?\n      "wand-sparkles"/);
+    expect(mainSource).toContain('this.addRibbonIcon(\n      "wand-sparkles"');
     expect(mainSource).toContain("syncQuickFormattingRibbonVisibility");
     expect(mainSource).toContain("setQuickFormattingRibbonVisible");
     expect(mainSource).toContain("this.settings.showQuickFormattingRibbon");
     expect(mainSource).toContain("this.quickFormattingRibbon?.remove()");
     expect(mainSource).toContain("ribbon.parentElement?.append(ribbon)");
-    expect(mainSource).not.toMatch(/toggleAttribute\(\r?\n      \"hidden\"/);
+    expect(mainSource).not.toContain("toggleAttribute(\n      \"hidden\"");
     expect(settingsSource).toContain('setName("显示一键排版 Ribbon 按钮")');
     expect(settingsSource).toContain("setQuickFormattingRibbonVisible(value)");
   });
@@ -132,8 +132,6 @@ describe("saved one-click formatting shortcuts", () => {
 
     expect(eventStart).toBeGreaterThanOrEqual(0);
     expect(eventBody).toContain("leaf?.view instanceof WritingPanelView");
-    expect(eventBody).toMatch(
-      /if \(!\(leaf\?\.view instanceof WritingPanelView\)\) \{\s*this\.refreshWritingPanels\(\);\s*\}/,
-    );
+    expect(eventBody).toContain("this.scheduleViewRefresh(!(leaf?.view instanceof WritingPanelView))");
   });
 });

@@ -96,51 +96,68 @@ function intersectsVisibleRange(
   );
 }
 
-function buildDecorations(view: EditorView): DecorationSet {
+interface DocumentAnalysis {
+  document: EditorView["state"]["doc"];
+  proseLines: Set<number>;
+  emptyProseLines: Set<number>;
+  diagnostics: ReturnType<typeof analyzeChineseText>;
+}
+
+// 每个视图只保留当前文档的结果，避免撤销历史中的旧文档累积分析缓存。
+const documentAnalyses = new WeakMap<EditorView, DocumentAnalysis>();
+
+function getDocumentAnalysis(view: EditorView): DocumentAnalysis {
   const document = view.state.doc;
-  const text = document.toString();
-  const decorations = [];
+  const cached = documentAnalyses.get(view);
+  if (cached?.document === document) return cached;
+  const analysis: DocumentAnalysis = {
+    document,
+    proseLines: new Set(),
+    emptyProseLines: new Set(),
+    diagnostics: analyzeChineseText(document.toString()),
+  };
   let inFence = false;
   let inFrontmatter = document.line(1).text.trim() === "---";
   let previousWasProse = false;
-  const activeLineNumber = document.lineAt(view.state.selection.main.head).number;
-
   for (let lineNumber = 1; lineNumber <= document.lines; lineNumber += 1) {
     const line = document.line(lineNumber);
     const trimmed = line.text.trim();
     const fenceLine = /^(```+|~~~+)/.test(trimmed);
-    const frontmatterLine = inFrontmatter;
-    const protectedLine = inFence || fenceLine || frontmatterLine;
+    const protectedLine = inFence || fenceLine || inFrontmatter;
     const proseLine = isProseLine(line.text, protectedLine);
-    const emptyActiveProseLine =
-      lineNumber === activeLineNumber &&
-      trimmed === "" &&
-      !protectedLine &&
-      previousWasProse;
-
-    if (
-      intersectsVisibleRange(line.from, line.to, view) &&
-      (proseLine || emptyActiveProseLine)
-    ) {
-      decorations.push(
-        Decoration.line({
-          attributes: {
-            class: emptyActiveProseLine
-              ? "cw-prose-line cw-empty-prose-line"
-              : "cw-prose-line",
-          },
-        }).range(line.from),
-      );
+    if (proseLine) analysis.proseLines.add(lineNumber);
+    if (trimmed === "" && !protectedLine && previousWasProse) {
+      analysis.emptyProseLines.add(lineNumber);
     }
-
-    if (frontmatterLine && lineNumber > 1 && trimmed === "---") {
-      inFrontmatter = false;
-    }
+    if (inFrontmatter && lineNumber > 1 && trimmed === "---") inFrontmatter = false;
     if (fenceLine) inFence = !inFence;
     previousWasProse = proseLine;
   }
+  documentAnalyses.set(view, analysis);
+  return analysis;
+}
 
-  for (const diagnostic of analyzeChineseText(text)) {
+function buildDecorations(view: EditorView): DecorationSet {
+  const { document, proseLines, emptyProseLines, diagnostics } = getDocumentAnalysis(view);
+  const decorations = [];
+  const activeLineNumber = document.lineAt(view.state.selection.main.head).number;
+  let lastLineNumber = 0;
+  for (const range of view.visibleRanges) {
+    const endLine = document.lineAt(range.to).number;
+    for (let lineNumber = Math.max(lastLineNumber + 1, document.lineAt(range.from).number);
+      lineNumber <= endLine; lineNumber += 1) {
+      const emptyActiveProseLine = lineNumber === activeLineNumber && emptyProseLines.has(lineNumber);
+      if (proseLines.has(lineNumber) || emptyActiveProseLine) {
+        decorations.push(Decoration.line({
+          attributes: {
+            class: emptyActiveProseLine ? "cw-prose-line cw-empty-prose-line" : "cw-prose-line",
+          },
+        }).range(document.line(lineNumber).from));
+      }
+    }
+    lastLineNumber = endLine;
+  }
+  for (const diagnostic of diagnostics) {
     if (!intersectsVisibleRange(diagnostic.from, diagnostic.to, view)) continue;
     decorations.push(
       Decoration.mark({
@@ -152,10 +169,8 @@ function buildDecorations(view: EditorView): DecorationSet {
       }).range(diagnostic.from, diagnostic.to),
     );
   }
-
   return Decoration.set(decorations, true);
 }
-
 class ChineseWritingViewPlugin implements PluginValue {
   decorations: DecorationSet;
   private centerFrame?: number;
