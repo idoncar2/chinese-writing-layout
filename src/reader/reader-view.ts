@@ -346,19 +346,15 @@ export class ReaderView extends FileView {
 
   private applyReaderSettings(): void {
     const settings = this.host.getReaderSettings();
-    this.contentEl.style.setProperty(
-      "--cw-reader-font-family",
-      fontSelectionToLegacyFontFamily(settings.font, "body"),
-    );
-    this.contentEl.style.setProperty("--cw-reader-font-size", `${settings.fontSize}px`);
-    this.contentEl.style.setProperty("--cw-reader-line-height", `${settings.lineHeight}`);
-    this.contentEl.style.setProperty(
-      "--cw-reader-paragraph-spacing",
-      `${settings.paragraphSpacing}em`,
-    );
-    this.contentEl.style.setProperty("--cw-reader-content-width", `${settings.contentWidth}px`);
-    this.contentEl.style.setProperty("--cw-reader-page-padding", `${settings.pagePadding}px`);
-    this.contentEl.style.setProperty("--cw-reader-background", "var(--background-primary)");
+    this.contentEl.setCssProps({
+      "--cw-reader-font-family": fontSelectionToLegacyFontFamily(settings.font, "body"),
+      "--cw-reader-font-size": `${settings.fontSize}px`,
+      "--cw-reader-line-height": `${settings.lineHeight}`,
+      "--cw-reader-paragraph-spacing": `${settings.paragraphSpacing}em`,
+      "--cw-reader-content-width": `${settings.contentWidth}px`,
+      "--cw-reader-page-padding": `${settings.pagePadding}px`,
+      "--cw-reader-background": "var(--background-primary)",
+    });
     for (const background of ["white", "warm", "gray", "dark"] as const) {
       this.contentEl.removeClass(`cw-reader-background-${background}`);
     }
@@ -405,10 +401,12 @@ export class ReaderView extends FileView {
     const pageContentHeight = Math.max(360, pageHeight - settings.pagePadding * 2);
     this.phonePageWidth = pageWidth;
     this.phonePageGap = READER_PHONE_PAGE_GAP;
-    content.style.setProperty("--cw-reader-page-width", `${pageWidth}px`);
-    content.style.setProperty("--cw-reader-page-height", `${pageHeight}px`);
-    content.style.setProperty("--cw-reader-page-content-width", `${pageContentWidth}px`);
-    content.style.setProperty("--cw-reader-page-content-height", `${pageContentHeight}px`);
+    content.setCssProps({
+      "--cw-reader-page-width": `${pageWidth}px`,
+      "--cw-reader-page-height": `${pageHeight}px`,
+      "--cw-reader-page-content-width": `${pageContentWidth}px`,
+      "--cw-reader-page-content-height": `${pageContentHeight}px`,
+    });
     this.totalPages = calculateReaderPageCount(
       content.scrollWidth,
       pageWidth,
