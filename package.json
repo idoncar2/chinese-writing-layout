@@ -1,6 +1,6 @@
 {
   "name": "chinese-writing-layout",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Non-destructive Chinese novel typography for Obsidian.",
   "main": "main.js",
   "type": "module",

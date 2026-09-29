@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../src/types";
 
-const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
+const mainSource = readFileSync(resolve("src/main.ts"), "utf8").replace(/\r\n/g, "\n");
 const panelSource = readFileSync(resolve("src/writing-panel.ts"), "utf8");
 const settingsSource = readFileSync(resolve("src/settings.ts"), "utf8");
 const stylesSource = readFileSync(resolve("styles.css"), "utf8");
@@ -74,6 +74,12 @@ describe("saved one-click formatting shortcuts", () => {
     );
     expect(mainSource).toContain('new Notice("请先打开一篇 Markdown 笔记")');
     expect(mainSource).toContain('new Notice("排版失败，请重试")');
+  });
+
+  it("registers a command that directly applies one-click formatting", () => {
+    expect(mainSource).toMatch(
+      /id: "apply-one-click-formatting"[\s\S]*name: "执行一键排版"[\s\S]*editorCallback: \(editor\) =>\s*void this\.applySavedFormatting\(editor\)/,
+    );
   });
 
   it("fully applies newly saved formatting defaults before the modal closes", () => {

@@ -3278,6 +3278,23 @@ body.cw-focus-mode
   overflow-wrap: anywhere;
 }
 
+.cw-panel-tool-grid > .cw-panel-tool:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 2px;
+  min-height: 58px;
+  padding: 10px 14px;
+  text-align: start;
+  justify-items: start;
+}
+
+.cw-panel-tool-grid > .cw-panel-tool:last-child:nth-child(odd) .cw-panel-tool-icon {
+  grid-row: 1 / 3;
+  align-self: center;
+}
+
 .cw-format-rule-target {
   display: flex;
   grid-column: 1 / -1;
@@ -4137,5 +4154,357 @@ body.cw-focus-mode
 
   .cw-long-image-preview-footer button {
     min-width: 0;
+  }
+}
+
+/* Phone preview sidebar */
+.cw-phone-preview {
+  --cw-phone-accent: var(--cw-panel-accent, var(--interactive-accent));
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+
+.cw-phone-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.cw-phone-header h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cw-phone-header button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  place-items: center;
+}
+
+.cw-phone-header button:focus-visible,
+.cw-phone-controls select:focus-visible,
+.cw-phone-scroll:focus-visible {
+  outline: 2px solid var(--cw-phone-accent);
+  outline-offset: 2px;
+}
+
+.cw-phone-stage {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 160px;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 12px;
+  overflow: hidden;
+  background: var(--background-secondary);
+}
+
+.cw-phone-fit {
+  position: relative;
+  flex: 0 0 auto;
+  width: 390px;
+  height: 780px;
+}
+
+.cw-phone-device {
+  --cw-phone-font-size: 20px;
+  --cw-phone-paper: #ffffff;
+  --cw-phone-ink: #292621;
+  --cw-phone-muted: #716b62;
+  --cw-phone-link: #215f9a;
+  position: absolute;
+  inset: 0 auto auto 0;
+  display: flex;
+  width: 390px;
+  height: 780px;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  transform-origin: top left;
+  border: 6px solid #17191d;
+  border-radius: 30px;
+  background: var(--cw-phone-paper);
+  box-shadow: 0 18px 42px rgb(0 0 0 / 28%);
+  color: var(--cw-phone-ink);
+  isolation: isolate;
+}
+
+.cw-phone-device[data-theme="white"] {
+  --cw-phone-paper: #ffffff;
+  --cw-phone-ink: #292621;
+  --cw-phone-muted: #716b62;
+  --cw-phone-link: #215f9a;
+}
+
+.cw-phone-device[data-theme="warm"] {
+  --cw-phone-paper: #fbf3df;
+  --cw-phone-ink: #3d342a;
+  --cw-phone-muted: #7d7060;
+  --cw-phone-link: #86532e;
+}
+
+.cw-phone-device[data-theme="dark"] {
+  --cw-phone-paper: #252321;
+  --cw-phone-ink: #eee7d8;
+  --cw-phone-muted: #b8ae9f;
+  --cw-phone-link: #a9c9f2;
+}
+
+.cw-phone-meta,
+.cw-phone-footer {
+  flex: 0 0 auto;
+  min-width: 0;
+  background: var(--cw-phone-paper);
+  color: var(--cw-phone-muted);
+  font-family: var(--font-interface, var(--font-text));
+}
+
+.cw-phone-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  padding: 8px 14px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--cw-phone-ink) 14%, transparent);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.cw-phone-meta > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cw-phone-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 14px 18px 18px;
+  background: var(--cw-phone-paper);
+  color: var(--cw-phone-ink);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cw-phone-article.markdown-rendered {
+  min-width: 0;
+  color: var(--cw-phone-ink);
+  font-family: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+  font-size: var(--cw-phone-font-size);
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.cw-phone-article.markdown-rendered h1,
+.cw-phone-article.markdown-rendered h2,
+.cw-phone-article.markdown-rendered h3,
+.cw-phone-article.markdown-rendered h4,
+.cw-phone-article.markdown-rendered h5,
+.cw-phone-article.markdown-rendered h6 {
+  margin: 0 0 0.75em;
+  color: var(--cw-phone-ink);
+  font-family: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.cw-phone-article.markdown-rendered h1 {
+  font-size: 1.5em;
+  letter-spacing: 0.02em;
+}
+
+.cw-phone-article.markdown-rendered h2 {
+  font-size: 1.28em;
+}
+
+.cw-phone-article.markdown-rendered h3 {
+  font-size: 1.12em;
+}
+
+.cw-phone-article.markdown-rendered p {
+  margin: 0 0 1em;
+  text-indent: 2em;
+}
+
+.cw-phone-article .cw-reading-prose-line {
+  display: block;
+  margin-block-end: 1em;
+  text-indent: 2em;
+}
+
+.cw-phone-article .cw-reading-prose-line:last-child {
+  margin-block-end: 0;
+}
+
+.cw-phone-article .cw-reading-prose-break {
+  display: none;
+}
+
+.cw-phone-article.markdown-rendered li,
+.cw-phone-article.markdown-rendered li p,
+.cw-phone-article.markdown-rendered blockquote,
+.cw-phone-article.markdown-rendered blockquote p,
+.cw-phone-article.markdown-rendered td p,
+.cw-phone-article.markdown-rendered th p {
+  text-indent: 0;
+}
+
+.cw-phone-article.markdown-rendered ul,
+.cw-phone-article.markdown-rendered ol {
+  margin-block: 0 1em;
+  padding-inline-start: 1.5em;
+}
+
+.cw-phone-article.markdown-rendered li + li {
+  margin-block-start: 0.25em;
+}
+
+.cw-phone-article.markdown-rendered blockquote {
+  margin: 0 0 1em;
+  padding: 0 0 0 1em;
+  border-inline-start: 3px solid color-mix(in srgb, var(--cw-phone-ink) 30%, transparent);
+  color: var(--cw-phone-muted);
+}
+
+.cw-phone-article.markdown-rendered a {
+  color: var(--cw-phone-link);
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.12em;
+}
+
+.cw-phone-article.markdown-rendered img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto 1em;
+  border-radius: 6px;
+}
+
+.cw-phone-article.markdown-rendered table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin-block: 0 1em;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.cw-phone-article.markdown-rendered th,
+.cw-phone-article.markdown-rendered td {
+  padding: 0.35em 0.55em;
+  border: 1px solid color-mix(in srgb, var(--cw-phone-ink) 22%, transparent);
+  text-align: start;
+}
+
+.cw-phone-article.markdown-rendered pre {
+  max-width: 100%;
+  margin-block: 0 1em;
+  padding: 0.8em;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--cw-phone-ink) 9%, var(--cw-phone-paper));
+  font-family: var(--font-monospace);
+  font-size: 0.78em;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.cw-phone-article.markdown-rendered code {
+  font-family: var(--font-monospace);
+  font-size: 0.88em;
+}
+
+.cw-phone-article.markdown-rendered :is(hr, .internal-embed, .markdown-embed) {
+  margin-block: 1em;
+}
+
+.cw-phone-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 32px;
+  padding: 6px 14px 8px;
+  border-top: 1px solid color-mix(in srgb, var(--cw-phone-ink) 14%, transparent);
+  font-size: 11px;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+.cw-phone-controls {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  min-width: 0;
+  padding: 9px 4px 0;
+}
+
+.cw-phone-controls label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.cw-phone-controls label span {
+  order: -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cw-phone-controls select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 320px) {
+  .cw-phone-stage {
+    padding-inline: 4px;
+  }
+
+  .cw-phone-controls {
+    gap: 5px;
+    padding-inline: 0;
   }
 }

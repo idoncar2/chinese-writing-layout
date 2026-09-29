@@ -136,7 +136,7 @@ const SLIDERS: SliderDefinition[] = [
     key: "contentWidth",
     label: "正文宽度",
     minimum: 28,
-    maximum: 72,
+    maximum: 120,
     step: 1,
     unit: "字宽",
   },
@@ -1107,6 +1107,15 @@ export class WritingPanelView extends ItemView {
       "使用 Obsidian 文件恢复",
       false,
       () => this.plugin.openFileRecoverySnapshots(),
+    );
+    this.addToolButton(
+      grid,
+      "smartphone",
+      "手机预览",
+      "查看手机上的阅读效果",
+      false,
+      () => void this.plugin.openPhonePreview(),
+      !this.plugin.getWritingMarkdownView()?.file,
     );
 
     const typewriterOptions = section.createDiv({ cls: "cw-panel-typewriter-options" });

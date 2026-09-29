@@ -1,7 +1,21 @@
 import { stripMarkdownLines } from "./markdown-formatting";
+import { parseNumber } from "./chapter-heading-format";
 import type { ExportFormat, ExportScope } from "./types";
 
 const FRONTMATTER_PATTERN = /^---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n|$)/;
+
+export function compareExportNames(left: string, right: string): number {
+  const sortKey = (name: string): string => name.replace(
+    /第([零〇一二两三四五六七八九十百千]+)(章|卷|节|回|部)/gu,
+    (match, number: string, unit: string) => {
+      const value = parseNumber(number);
+      return value === undefined ? match : `第${value}${unit}`;
+    },
+  );
+  const options = { numeric: true, sensitivity: "base" } as const;
+  return sortKey(left).localeCompare(sortKey(right), "zh-CN", options)
+    || left.localeCompare(right, "zh-CN", options);
+}
 
 export interface ExportBlock {
   kind: "paragraph" | "heading" | "blank" | "page-break";

@@ -57,6 +57,12 @@ export function calculateTypewriterScrollDelta(
   return caretTop - (viewportTop + viewportHeight * position);
 }
 
+export function shouldCenterTypewriter(
+  update: Pick<ViewUpdate, "docChanged" | "selectionSet">,
+): boolean {
+  return update.docChanged;
+}
+
 export function shouldShowScrollToBottom(
   scrollTop: number,
   clientHeight: number,
@@ -238,7 +244,7 @@ class ChineseWritingViewPlugin implements PluginValue {
     ) {
       this.decorations = buildDecorations(update.view);
     }
-    if (update.docChanged || update.selectionSet) {
+    if (shouldCenterTypewriter(update)) {
       this.scheduleTypewriterCenter(update.view);
     }
     if (update.docChanged || update.viewportChanged || update.geometryChanged) {

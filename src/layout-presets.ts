@@ -114,7 +114,7 @@ export function normalizeLayoutPresetValues(
       4,
       0.5,
     ),
-    contentWidth: normalizeNumber(values?.contentWidth, DEFAULT_SETTINGS.contentWidth, 28, 72, 1),
+    contentWidth: normalizeNumber(values?.contentWidth, DEFAULT_SETTINGS.contentWidth, 28, 120, 1),
     ...(contentWidthPx === undefined ? {} : { contentWidthPx }),
     leftMargin: normalizeNumber(values?.leftMargin, DEFAULT_SETTINGS.leftMargin, 0, 12, 0.5),
     rightMargin: normalizeNumber(values?.rightMargin, DEFAULT_SETTINGS.rightMargin, 0, 12, 0.5),
@@ -196,7 +196,7 @@ export function normalizeLayoutPresetOverrides(
     normalized.firstLineIndent = normalizeNumber(values.firstLineIndent, DEFAULT_SETTINGS.firstLineIndent, 0, 4, 0.5);
   }
   if (typeof values.contentWidth === "number") {
-    normalized.contentWidth = normalizeNumber(values.contentWidth, DEFAULT_SETTINGS.contentWidth, 28, 72, 1);
+    normalized.contentWidth = normalizeNumber(values.contentWidth, DEFAULT_SETTINGS.contentWidth, 28, 120, 1);
   }
   if (typeof values.leftMargin === "number") {
     normalized.leftMargin = normalizeNumber(values.leftMargin, DEFAULT_SETTINGS.leftMargin, 0, 12, 0.5);

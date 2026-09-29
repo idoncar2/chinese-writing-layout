@@ -7,7 +7,7 @@ const DIGITS: Record<string, number> = {
 const UNITS: Record<string, number> = { 十: 10, 百: 100, 千: 1000 };
 const OUTPUT_DIGITS = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
 
-function parseNumber(source: string): number | undefined {
+export function parseNumber(source: string): number | undefined {
   if (/^[1-9]\d{0,3}$/u.test(source)) return Number(source);
   if (!/^[零〇一二两三四五六七八九十百千]+$/u.test(source)) return undefined;
   let total = 0;

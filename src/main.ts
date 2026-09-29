@@ -99,6 +99,7 @@ import { ReaderModeModal } from "./reader/reader-mode-modal";
 import { ReaderSettingsModal } from "./reader/reader-settings-modal";
 import { normalizeReaderPositions } from "./reader/reader-position";
 import { ReaderView } from "./reader/reader-view";
+import { PhonePreviewView, PHONE_PREVIEW_VIEW_TYPE } from "./reader/phone-preview-view";
 import { resolveRecommendedFontName } from "./quick-fonts";
 import { ChineseWritingSettingTab } from "./settings";
 import { SettingsSaveQueue } from "./settings-save-queue";
@@ -176,6 +177,7 @@ import {
 } from "./ui-theme";
 import type { TextDiagnostic } from "./text-analysis";
 import {
+  compareExportNames,
   getAvailableExportBaseName,
   getAvailableExportPath,
   prepareExportContent as prepareExportContentFromSources,
@@ -309,6 +311,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       WRITING_PANEL_VIEW_TYPE,
       (leaf) => new WritingPanelView(leaf, this),
     );
+    this.registerView(PHONE_PREVIEW_VIEW_TYPE, (leaf) => new PhonePreviewView(leaf));
     if (READER_MODE_ENABLED) {
       this.registerView(
         READER_VIEW_TYPE,
@@ -348,6 +351,12 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       id: "open-writing-layout-panel",
       name: "打开写作排版面板",
       callback: () => void this.openWritingPanel(),
+    });
+
+    this.addCommand({
+      id: "open-phone-preview",
+      name: "打开手机阅读预览",
+      callback: () => void this.openPhonePreview(),
     });
 
     if (READER_MODE_ENABLED) {
@@ -404,6 +413,12 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       id: "open-one-click-formatting",
       name: "打开一键排版",
       editorCallback: (editor) => this.openFormattingModal(editor),
+    });
+
+    this.addCommand({
+      id: "apply-one-click-formatting",
+      name: "执行一键排版",
+      editorCallback: (editor) => void this.applySavedFormatting(editor),
     });
 
     this.addCommand({
@@ -2404,6 +2419,20 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     await this.enqueueSettingsSave();
   }
 
+  async openPhonePreview(): Promise<void> {
+    const source = this.getWritingMarkdownView();
+    if (!source?.file) {
+      new Notice("请先打开一篇 Markdown 笔记");
+      return;
+    }
+    const leaf = this.app.workspace.getLeavesOfType(PHONE_PREVIEW_VIEW_TYPE)[0]
+      ?? this.app.workspace.getRightLeaf(false);
+    if (!leaf) return;
+    await leaf.setViewState({ type: PHONE_PREVIEW_VIEW_TYPE, active: true });
+    await this.app.workspace.revealLeaf(leaf);
+    if (leaf.view instanceof PhonePreviewView) leaf.view.setSource(source);
+  }
+
   openReaderModeModal(): void {
     if (!READER_MODE_ENABLED) return;
     if (!this.getWritingMarkdownView()?.file) {
@@ -2972,11 +3001,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     const parentPath = view.file.parent?.path ?? "";
     const files = this.app.vault.getMarkdownFiles()
       .filter((file) => (file.parent?.path ?? "") === parentPath)
-      .sort((left, right) => left.basename.localeCompare(
-        right.basename,
-        "zh-CN",
-        { numeric: true, sensitivity: "base" },
-      ));
+      .sort((left, right) => compareExportNames(left.basename, right.basename));
     const sources: ExportSource[] = [];
     for (const file of files) {
       sources.push({

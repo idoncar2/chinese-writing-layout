@@ -33,6 +33,15 @@ function getApplySavedLayoutPresetSnapshot(): ApplySavedLayoutPresetSnapshot | u
 }
 
 describe("layout presets", () => {
+  it("preserves wider body widths in presets and overrides up to 120", () => {
+    for (const contentWidth of [72, 96, 120]) {
+      expect(normalizeLayoutPresetValues({ contentWidth }).contentWidth).toBe(contentWidth);
+      expect(normalizeLayoutPresetOverrides({ contentWidth }).contentWidth).toBe(contentWidth);
+    }
+    expect(normalizeLayoutPresetValues({ contentWidth: 150 }).contentWidth).toBe(120);
+    expect(normalizeLayoutPresetOverrides({ contentWidth: 150 }).contentWidth).toBe(120);
+  });
+
   it("captures only visual layout settings", () => {
     expect(DEFAULT_SETTINGS.fontFamily.startsWith('"思源宋体"')).toBe(true);
     expect(DEFAULT_SETTINGS.headingFontFamily.startsWith('"思源黑体"')).toBe(true);

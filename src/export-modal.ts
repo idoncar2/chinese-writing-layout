@@ -61,7 +61,7 @@ export class ExportModal extends Modal {
 
     new Setting(this.contentEl)
       .setName("导出范围")
-      .setDesc("整稿会合并当前笔记所在文件夹中的 Markdown，并按文件名自然排序。")
+      .setDesc("整稿会合并当前笔记所在文件夹中的 Markdown，按文件名排序，并识别中文章号（如第一章、第二章、第十章）。可用 01、02 等文件名前缀指定顺序。")
       .addDropdown((dropdown) => dropdown
         .addOption("current", "当前笔记")
         .addOption("folder", "当前文件夹整稿")

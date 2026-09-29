@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateTypewriterScrollDelta } from "../src/editor-extension";
+import { calculateTypewriterScrollDelta, shouldCenterTypewriter } from "../src/editor-extension";
 import {
   normalizePaperTheme,
   normalizeTypewriterCursorPosition,
@@ -11,6 +11,11 @@ describe("typewriter cursor positioning", () => {
     expect(calculateTypewriterScrollDelta(600, 100, 1000, 50)).toBe(0);
     expect(calculateTypewriterScrollDelta(600, 100, 1000, 30)).toBe(200);
     expect(calculateTypewriterScrollDelta(600, 100, 1000, 70)).toBe(-200);
+  });
+
+  it("recenters only after the document changes, not when the caret or selection moves", () => {
+    expect(shouldCenterTypewriter({ docChanged: false, selectionSet: true })).toBe(false);
+    expect(shouldCenterTypewriter({ docChanged: true, selectionSet: false })).toBe(true);
   });
 
   it("normalizes saved positions to the nearest supported choice", () => {

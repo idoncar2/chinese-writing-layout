@@ -281,7 +281,7 @@ export class ChineseWritingSettingTab extends PluginSettingTab {
       "contentWidth",
       "汉字宽",
       28,
-      72,
+      120,
       1,
       () => this.plugin.getGlobalLayoutSettings().contentWidth,
       async (value) => {
