@@ -2695,6 +2695,7 @@ body.cw-focus-mode
 
 .cw-reader-settings-modal .cw-reader-font-button {
   max-width: 240px;
+  font-family: var(--cw-reader-font-preview, inherit);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
