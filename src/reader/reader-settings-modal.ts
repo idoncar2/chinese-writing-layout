@@ -121,16 +121,24 @@ export class ReaderSettingsModal extends Modal {
               this.host.previewReaderSettings({ font: selection });
               void this.host.commitReaderSettings();
               component.setButtonText(this.getFontLabel());
+              component.buttonEl.setCssProps({
+                "--cw-reader-font-preview": getFontSelectionPreviewFamily(
+                  this.settings.font,
+                  this.host.getReaderUserFonts(),
+                ),
+              });
             },
             this.host.getFontPickerUserFontActions(),
           ).open();
         });
     });
     buttonEl?.classList.add("cw-reader-font-button");
-    if (buttonEl) buttonEl.style.fontFamily = getFontSelectionPreviewFamily(
-      this.settings.font,
-      this.host.getReaderUserFonts(),
-    );
+    buttonEl?.setCssProps({
+      "--cw-reader-font-preview": getFontSelectionPreviewFamily(
+        this.settings.font,
+        this.host.getReaderUserFonts(),
+      ),
+    });
   }
 
   private renderSliderSetting(
