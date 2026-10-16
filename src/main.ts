@@ -632,7 +632,6 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
 
   onunload(): void {
     this.fontDisposed = true;
-    this.fontGeneration++;
     this.unregisterModule?.();
     this.writingContextListeners.clear();
     this.workspaceRuleListeners.clear();
@@ -850,7 +849,9 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   }
 
   getAvailableUserFontIds(): ReadonlySet<string> {
-    return this.availableUserFontIds;
+    // An unloaded font is not a missing font. Keep imported fonts selectable
+    // so choosing one can trigger its first lazy load.
+    return new Set(this.settings.userFonts.map((font) => font.id));
   }
 
   getFontPickerUserFontActions(): FontPickerUserFontActions {
@@ -1083,7 +1084,6 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     }
 
     this.unloadUserFonts();
-    this.syncNeededUserFonts();
     this.applySettings();
     this.syncAllViews();
     this.updateStatusBar();
