@@ -1,4 +1,4 @@
-import type { UserFont } from "./types";
+import type { LayoutPresetValues, UserFont } from "./types";
 
 export const SUPPORTED_USER_FONT_FORMATS = ["ttf", "otf", "woff", "woff2"] as const;
 
@@ -202,4 +202,31 @@ export async function migrateLegacyUserFontDirectory(
     result.failures.push(...remaining.folders);
   }
   return result;
+}
+
+/**
+ * Read only the CSS font families actually applied to a view. Stored presets
+ * and unused imported fonts must not cause font binaries to load at startup.
+ * In "follow Obsidian" mode only explicitly overridden families are applied.
+ */
+export function requiredUserFontIds(
+  layout: LayoutPresetValues,
+  userFonts: readonly UserFont[],
+  followObsidian = false,
+  overrides: Partial<LayoutPresetValues> = {},
+): string[] {
+  const source = followObsidian ? overrides : layout;
+  const families = [
+    source.fontFamily,
+    source.headingFontFamily,
+    source.quoteFontFamily,
+    source.boldFontFamily,
+    source.italicFontFamily,
+  ].filter((value): value is string => typeof value === "string");
+  const used = new Set(
+    families.flatMap((family) =>
+      family.split(",").map((name) => name.trim().replace(/^["']|["']$/gu, "")),
+    ),
+  );
+  return userFonts.filter((font) => used.has(font.id)).map((font) => font.id);
 }
