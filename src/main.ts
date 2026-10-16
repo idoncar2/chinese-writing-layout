@@ -119,6 +119,7 @@ import {
   getUserFontDirectory as resolveUserFontDirectory,
   getUserFontFilePath,
   migrateLegacyUserFontDirectory,
+  requiredUserFontIds,
 } from "./user-fonts";
 import { getVaultFolderPath } from "./system-folder";
 import {
@@ -275,6 +276,10 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   private lastBatchFormattingUndo?: BatchFormattingUndoState;
   private readonly loadedUserFontFaces = new Map<string, FontFace>();
   private readonly availableUserFontIds = new Set<string>();
+  private readonly pendingFontLoads = new Map<string, Promise<void>>();
+  private fontGeneration = 0;
+  private fontMigration?: Promise<void>;
+  private fontDisposed = false;
   private focusModeEnabled = false;
   private appliedTypewriterPosition?: number;
   private appliedTypewriterMode = false;
@@ -286,8 +291,6 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
-    await this.migrateLegacyUserFonts();
-    await this.loadUserFonts();
     this.registerModuleApi();
     this.addSettingTab(new ChineseWritingSettingTab(this.app, this));
     this.registerEditorExtension(
@@ -628,6 +631,8 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.fontDisposed = true;
+    this.fontGeneration++;
     this.unregisterModule?.();
     this.writingContextListeners.clear();
     this.workspaceRuleListeners.clear();
@@ -860,50 +865,65 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   }
 
   private async loadUserFonts(): Promise<void> {
-    this.unloadUserFonts();
-    if (this.settings.userFonts.length === 0) return;
+    // Keep already loaded faces; importing a new font must not reload the
+    // entire collection of potentially very large CJK binaries.
+    this.syncNeededUserFonts();
+  }
 
-    const missing: string[] = [];
-    const unavailable: string[] = [];
-    if (typeof document === "undefined" || !document.fonts || typeof FontFace === "undefined") {
-      missing.push(...this.settings.userFonts.map((font) => font.name));
-    } else {
-      const adapter = this.app.vault.adapter;
-      const directory = this.getUserFontDirectory();
-      const fontSet = document.fonts as unknown as {
-        add: (fontFace: FontFace) => void;
-        delete: (fontFace: FontFace) => boolean;
-      };
-      for (const font of this.settings.userFonts) {
-        try {
-          const path = await findUserFontFilePath(
-            adapter,
-            directory,
-            this.getLegacyUserFontDirectory(),
-            font.fileName,
-          );
-          if (!path) {
-            missing.push(font.name);
-            continue;
-          }
-          const binary = await adapter.readBinary(path);
-          const face = new FontFace(font.id, binary);
-          await face.load();
-          fontSet.add(face);
-          this.loadedUserFontFaces.set(font.id, face);
-          this.availableUserFontIds.add(font.id);
-        } catch {
-          unavailable.push(font.name);
-        }
+  private syncNeededUserFonts(): void {
+    if (this.fontDisposed || typeof document === "undefined") return;
+    const needed = new Set<string>();
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView) || !view.file || !this.isNovelFile(view.file)) continue;
+      const layout = this.getLayoutSettingsForFile(view.file);
+      const follow = this.getLayoutPresetIdForFile(view.file) === "obsidian";
+      const overrides = follow ? this.getFollowObsidianOverridesForFile(view.file) : {};
+      for (const id of requiredUserFontIds(layout, this.settings.userFonts, follow, overrides)) needed.add(id);
+    }
+    for (const id of needed) void this.ensureUserFontLoaded(id);
+  }
+
+  private async ensureUserFontLoaded(id: string): Promise<void> {
+    if (this.fontDisposed || this.loadedUserFontFaces.has(id)) return;
+    const existing = this.pendingFontLoads.get(id);
+    if (existing) return existing;
+    const generation = this.fontGeneration;
+    const font = this.settings.userFonts.find((item) => item.id === id);
+    if (!font) return;
+    const load = (async () => {
+      if (typeof document === "undefined" || !document.fonts || typeof FontFace === "undefined") return;
+      try {
+        await this.ensureFontMigration();
+        const adapter = this.app.vault.adapter;
+        const path = await findUserFontFilePath(
+          adapter, this.getUserFontDirectory(), this.getLegacyUserFontDirectory(), font.fileName,
+        );
+        if (!path) throw new Error("Font file missing");
+        const binary = await adapter.readBinary(path);
+        const face = new FontFace(font.id, binary);
+        await face.load();
+        if (this.fontDisposed || generation !== this.fontGeneration
+          || !this.settings.userFonts.some((item) => item.id === id && item.fileName === font.fileName)) return;
+        document.fonts.add(face);
+        this.loadedUserFontFaces.set(id, face);
+        this.availableUserFontIds.add(id);
+        this.scheduleViewRefresh();
+      } catch (error) {
+        console.warn(`中文写作排版：字体暂不可用：${font.name}`, error);
       }
-    }
+    })();
+    this.pendingFontLoads.set(id, load);
+    try { await load; }
+    finally { if (this.pendingFontLoads.get(id) === load) this.pendingFontLoads.delete(id); }
+  }
 
-    if (missing.length > 0 || unavailable.length > 0) {
-      const names = [...missing, ...unavailable];
-      new Notice(
-        `字体文件暂时不可用：${names.join("、")}。设置仍会保留，文件恢复后可自动重新加载。`,
-      );
-    }
+  private async ensureLayoutFontsLoaded(layout: LayoutPresetValues): Promise<void> {
+    await Promise.all(requiredUserFontIds(layout, this.settings.userFonts).map((id) => this.ensureUserFontLoaded(id)));
+  }
+
+  private ensureFontMigration(): Promise<void> {
+    return this.fontMigration ??= this.migrateLegacyUserFonts();
   }
 
   private async migrateLegacyUserFonts(): Promise<void> {
@@ -924,6 +944,8 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   }
 
   private unloadUserFonts(): void {
+    this.fontGeneration++;
+    this.pendingFontLoads.clear();
     if (typeof document !== "undefined" && document.fonts) {
       const fontSet = document.fonts as unknown as {
         delete: (fontFace: FontFace) => boolean;
@@ -979,7 +1001,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       return null;
     }
 
-    await this.loadUserFonts();
+    this.syncNeededUserFonts();
     this.refreshWritingPanels();
     new Notice(`已导入字体：${metadata.name}`);
     return metadata;
@@ -1060,7 +1082,8 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       return false;
     }
 
-    await this.loadUserFonts();
+    this.unloadUserFonts();
+    this.syncNeededUserFonts();
     this.applySettings();
     this.syncAllViews();
     this.updateStatusBar();
@@ -2133,6 +2156,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   }
 
   private syncAllViews(): void {
+    this.syncNeededUserFonts();
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       const view = leaf.view;
       if (!(view instanceof MarkdownView)) continue;
@@ -2690,6 +2714,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     const prepared = await this.prepareExportContent(options, view);
     if (!view?.file || !prepared?.text || !prepared.blocks) return null;
     const layout = this.getLayoutSettingsForFile(view.file);
+    await this.ensureLayoutFontsLoaded(layout);
     const layoutViewportWidthPx = this.getMobileImageLayoutViewportWidth(view);
     const plan = await createLongImagePlan(prepared.blocks, {
       width: normalizeImageExportWidth(width),
@@ -2746,6 +2771,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
         return false;
       }
       const layout = this.getLayoutSettingsForFile(view.file);
+      if (request.format === "png") await this.ensureLayoutFontsLoaded(layout);
       const documentTitle = request.scope === "folder"
         ? `${view.file.parent?.name || this.app.vault.getName()}整稿`
         : view.file.basename;
