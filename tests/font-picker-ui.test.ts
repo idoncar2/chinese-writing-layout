@@ -62,7 +62,7 @@ describe("font picker presentation and interaction", () => {
     expect(mainSource).toContain("repairFontSelectionsAfterUserFontDeletion");
     expect(mainSource).toContain("renameUserFont");
     expect(mainSource).toContain("deleteUserFont");
-    expect(mainSource).toContain("loadUserFonts");
+    expect(mainSource).toContain("ensureUserFontLoaded");
   });
 
   it("loads imported font binaries without relying on desktop-style resource URLs", () => {
@@ -72,7 +72,8 @@ describe("font picker presentation and interaction", () => {
   });
 
   it("migrates legacy font files before loading and keeps a fallback during migration", () => {
-    expect(mainSource).toContain("await this.migrateLegacyUserFonts();");
+    expect(mainSource).toContain("this.ensureFontMigration()");
+    expect(mainSource).not.toContain("await this.migrateLegacyUserFonts();");
     expect(mainSource).toContain("migrateLegacyUserFontDirectory");
     expect(mainSource).toContain("findUserFontFilePath");
   });
