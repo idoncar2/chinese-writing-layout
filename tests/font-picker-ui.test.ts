@@ -57,7 +57,7 @@ describe("font picker presentation and interaction", () => {
 
   it("keeps missing user font files as metadata and marks them unavailable at runtime", () => {
     expect(source).toContain("字体暂不可用，仍保留原引用");
-    expect(mainSource).toContain("字体文件暂时不可用");
+    expect(mainSource).toContain("字体暂不可用：");
     expect(mainSource).toContain("this.availableUserFontIds");
     expect(mainSource).toContain("repairFontSelectionsAfterUserFontDeletion");
     expect(mainSource).toContain("renameUserFont");

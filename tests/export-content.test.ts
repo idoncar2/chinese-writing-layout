@@ -85,6 +85,26 @@ describe("export content preparation", () => {
     expect(prepared.text).toContain("第一章");
   });
 
+  it("includes the current file title in every export format when enabled", () => {
+    for (const format of ["txt", "md", "docx", "png"] as const) {
+      const prepared = prepareExportContent([
+        { title: "当前篇章", markdown: "正文。" },
+      ], {
+        format,
+        scope: "current",
+        includeFileTitles: true,
+        stripMarkdown: true,
+      });
+
+      expect(prepared.text).toContain("当前篇章");
+      if (format !== "md") {
+        expect(prepared.blocks?.some((block) => (
+          block.kind === "heading" && block.text === "当前篇章"
+        ))).toBe(true);
+      }
+    }
+  });
+
   it("truncates only the displayed preview text", () => {
     const fullText = "a".repeat(200_001);
     const preview = truncateExportPreview(fullText);

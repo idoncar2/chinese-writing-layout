@@ -126,7 +126,7 @@ styles.css
 
 - 插件围绕本地 Markdown 工作，不上传正文，也不包含遥测或外部网络服务。
 - 写作模式状态、版式模板、自动规则和字体元数据保存在插件自己的 `data.json`。
-- 用户导入的字体文件保存在 Obsidian 配置目录下独立的 `chinese-writing-layout/fonts/` 子目录，不会被插件更新覆盖。旧版插件目录中的字体会在启动时安全迁移；迁移失败时仍会从旧位置加载。
+- 用户导入的字体文件保存在 Obsidian 配置目录下独立的 `chinese-writing-layout/fonts/` 子目录，不会被插件更新覆盖。首次使用旧版字体时会安全迁移；迁移失败时仍会从旧位置加载。
 - 旧 CSS Class 笔记和旧版设置会继续读取；插件不会批量改写或清理用户的 Markdown 文件。
 - 卸载插件后，原始 Markdown 仍然可以由 Obsidian 正常打开。
 

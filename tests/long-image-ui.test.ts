@@ -34,6 +34,21 @@ describe("long image export UI and integration", () => {
     expect(imageSource).toContain("MOBILE_LAYOUT_MARGIN_X");
   });
 
+  it("rebuilds PNG content and its plan when exporting after a preview", () => {
+    const previewExportStart = modalSource.indexOf("private async exportPreparedLongImage");
+    const exportStart = modalSource.indexOf("private async exportContent", previewExportStart);
+    const previewExportSource = modalSource.slice(previewExportStart, exportStart);
+    const exportSource = modalSource.slice(exportStart);
+
+    expect(modalSource).not.toContain("private longImagePrepared");
+    expect(modalSource).not.toContain("private longImagePlan");
+    expect(previewExportSource).not.toContain("await this.prepareLongImageOrNotify()");
+    expect(previewExportSource).not.toContain("preparedContent:");
+    expect(previewExportSource).not.toContain("longImagePlan:");
+    expect(exportSource).not.toContain("this.longImagePrepared");
+    expect(exportSource).not.toContain("this.longImagePlan");
+  });
+
   it("keeps mobile layout sizing independent from browser-only viewport APIs", () => {
     expect(mainSource).toContain("MOBILE_IMAGE_LAYOUT_VIEWPORT_WIDTH");
     expect(mainSource).not.toContain("window.visualViewport");

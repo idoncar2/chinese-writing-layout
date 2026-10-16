@@ -26,8 +26,6 @@ export class ExportModal extends Modal {
   private wordHeader: boolean;
   private imageExportWidth: ImageExportWidth;
   private longImageOptionsEl?: HTMLElement;
-  private longImagePlan?: LongImagePlan;
-  private longImagePrepared?: PreparedExportContent;
   private advancedEl?: HTMLElement;
   private stripSetting?: Setting;
   private stripToggle?: ToggleComponent;
@@ -68,7 +66,6 @@ export class ExportModal extends Modal {
         .setValue(this.exportScope)
         .onChange((value) => {
           this.exportScope = value as ExportScope;
-          this.invalidateLongImagePlan();
         }));
 
     new Setting(this.contentEl)
@@ -82,7 +79,6 @@ export class ExportModal extends Modal {
         .setValue(this.format)
         .onChange((value) => {
           this.format = value as ExportFormat;
-          this.invalidateLongImagePlan();
           this.updateStripMarkdownControl();
           this.renderAdvancedOptions();
           this.renderLongImageOptions();
@@ -93,12 +89,11 @@ export class ExportModal extends Modal {
 
     new Setting(this.contentEl)
       .setName("加入文件标题")
-      .setDesc("整稿导出时，用每个文件名分隔不同文章。")
+      .setDesc("在正文前加入文件名；整稿导出时用各文件名分隔文章。")
       .addToggle((toggle) => toggle
         .setValue(this.includeFileTitles)
         .onChange((value) => {
           this.includeFileTitles = value;
-          this.invalidateLongImagePlan();
         }));
 
     const stripSetting = new Setting(this.contentEl)
@@ -110,7 +105,6 @@ export class ExportModal extends Modal {
           .setValue(this.stripMarkdown)
           .onChange((value) => {
             this.stripMarkdown = value;
-            this.invalidateLongImagePlan();
           });
       });
     this.stripSetting = stripSetting;
@@ -135,8 +129,6 @@ export class ExportModal extends Modal {
 
   onClose(): void {
     this.contentEl.empty();
-    this.longImagePlan = undefined;
-    this.longImagePrepared = undefined;
   }
 
   private updateStripMarkdownControl(): void {
@@ -145,11 +137,6 @@ export class ExportModal extends Modal {
     this.stripSetting?.setDesc(isMarkdown
       ? "Markdown 导出会保留原始 Markdown 语法。"
       : "一键去除标题符号、粗体、链接、双链、列表等标记；关闭后保留 Markdown 原文。");
-  }
-
-  private invalidateLongImagePlan(): void {
-    this.longImagePlan = undefined;
-    this.longImagePrepared = undefined;
   }
 
   private renderLongImageOptions(): void {
@@ -171,7 +158,6 @@ export class ExportModal extends Modal {
           .setValue(String(this.imageExportWidth))
           .onChange((value) => {
             this.imageExportWidth = Number(value) as ImageExportWidth;
-            this.invalidateLongImagePlan();
             const next = IMAGE_EXPORT_WIDTH_OPTIONS.find((option) => option.value === this.imageExportWidth);
             if (next) resolutionSetting.setDesc(next.description);
           });
@@ -324,13 +310,11 @@ export class ExportModal extends Modal {
     try {
       const result = await this.prepareLongImageOrNotify();
       if (!result) return;
-      this.longImagePrepared = result.prepared;
-      this.longImagePlan = result.plan;
       new LongImagePreviewModal(
         this.plugin,
         result.plan,
         this.exportScope,
-        (onProgress) => this.exportPreparedLongImage(result, onProgress),
+        (onProgress) => this.exportPreparedLongImage(onProgress),
       ).open();
     } finally {
       button.disabled = false;
@@ -338,7 +322,6 @@ export class ExportModal extends Modal {
   }
 
   private async exportPreparedLongImage(
-    result: { prepared: PreparedExportContent; plan: LongImagePlan },
     onProgress: (current: number, total: number) => void,
   ): Promise<boolean> {
     const succeeded = await this.plugin.exportNotes({
@@ -348,8 +331,6 @@ export class ExportModal extends Modal {
       wordPageNumbers: this.wordPageNumbers,
       wordHeader: this.wordHeader,
       imageExportWidth: this.imageExportWidth,
-      preparedContent: result.prepared,
-      longImagePlan: result.plan,
       onProgress,
     });
     if (succeeded) this.close();
@@ -366,8 +347,6 @@ export class ExportModal extends Modal {
         wordPageNumbers: this.wordPageNumbers,
         wordHeader: this.wordHeader,
         imageExportWidth: this.imageExportWidth,
-        preparedContent: this.format === "png" ? this.longImagePrepared : undefined,
-        longImagePlan: this.format === "png" ? this.longImagePlan : undefined,
         onProgress: (current, total) => {
           button.setText(`正在生成 ${current} / ${total}`);
         },

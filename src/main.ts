@@ -276,6 +276,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   private lastBatchFormattingUndo?: BatchFormattingUndoState;
   private readonly loadedUserFontFaces = new Map<string, FontFace>();
   private readonly availableUserFontIds = new Set<string>();
+  private readonly failedUserFontIds = new Set<string>();
   private readonly pendingFontLoads = new Map<string, Promise<void>>();
   private fontGeneration = 0;
   private fontMigration?: Promise<void>;
@@ -851,7 +852,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   getAvailableUserFontIds(): ReadonlySet<string> {
     // An unloaded font is not a missing font. Keep imported fonts selectable
     // so choosing one can trigger its first lazy load.
-    return new Set(this.settings.userFonts.map((font) => font.id));
+    return new Set(this.settings.userFonts.filter((font) => !this.failedUserFontIds.has(font.id)).map((font) => font.id));
   }
 
   getFontPickerUserFontActions(): FontPickerUserFontActions {
@@ -882,6 +883,12 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       const overrides = follow ? this.getFollowObsidianOverridesForFile(view.file) : {};
       for (const id of requiredUserFontIds(layout, this.settings.userFonts, follow, overrides)) needed.add(id);
     }
+    if (this.app.workspace.getLeavesOfType(READER_VIEW_TYPE).length > 0) {
+      const selection = this.settings.readerSettings.font;
+      if (selection.source === "user" && this.settings.userFonts.some((font) => font.id === selection.id)) {
+        needed.add(selection.id);
+      }
+    }
     for (const id of needed) void this.ensureUserFontLoaded(id);
   }
 
@@ -909,8 +916,10 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
         document.fonts.add(face);
         this.loadedUserFontFaces.set(id, face);
         this.availableUserFontIds.add(id);
+        this.failedUserFontIds.delete(id);
         this.scheduleViewRefresh();
       } catch (error) {
+        this.failedUserFontIds.add(id);
         console.warn(`中文写作排版：字体暂不可用：${font.name}`, error);
       }
     })();
@@ -955,6 +964,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     }
     this.loadedUserFontFaces.clear();
     this.availableUserFontIds.clear();
+    this.failedUserFontIds.clear();
   }
 
   private async ensureUserFontDirectory(directory: string): Promise<void> {
@@ -1538,28 +1548,31 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
   }
 
   previewLayoutSettings(patch: Partial<LayoutPresetValues>): void {
+    const currentLayout = this.getCurrentLayoutSettings();
     const file = this.getWritingMarkdownView()?.file;
     const documentLayout = file ? this.ensureDocumentLayoutForCurrentFile(file) : undefined;
     if (documentLayout) {
       if (documentLayout.layoutPreset === "obsidian") {
         const overrides = documentLayout.obsidianOverrides ??= {};
+        this.preserveContentWidthForPatch(overrides, patch, currentLayout);
         clearFollowObsidianFontOverrides(overrides, patch);
         Object.assign(
           overrides,
           normalizeLayoutPresetOverrides(patch),
         );
       } else {
-        this.clearMeasuredContentWidthForPatch(documentLayout.values, patch);
+        this.preserveContentWidthForPatch(documentLayout.values, patch, currentLayout);
         Object.assign(documentLayout.values, patch);
       }
     } else if (this.settings.layoutPreset === "obsidian") {
+      this.preserveContentWidthForPatch(this.settings.obsidianOverrides, patch, currentLayout);
       clearFollowObsidianFontOverrides(this.settings.obsidianOverrides, patch);
       Object.assign(
         this.settings.obsidianOverrides,
         normalizeLayoutPresetOverrides(patch),
       );
     } else {
-      this.clearMeasuredContentWidthForPatch(this.settings, patch);
+      this.preserveContentWidthForPatch(this.settings, patch, currentLayout);
       Object.assign(this.settings, patch);
     }
     this.syncAllViews();
@@ -1567,31 +1580,31 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
 
   previewGlobalLayoutSettings(patch: Partial<LayoutPresetValues>): void {
     if (!this.isRestoringLayoutHistory) this.invalidateLayoutHistory("global");
+    const currentLayout = this.getGlobalLayoutSettings();
     if (this.settings.layoutPreset === "obsidian") {
+      this.preserveContentWidthForPatch(this.settings.obsidianOverrides, patch, currentLayout);
       clearFollowObsidianFontOverrides(this.settings.obsidianOverrides, patch);
       Object.assign(
         this.settings.obsidianOverrides,
         normalizeLayoutPresetOverrides(patch),
       );
     } else {
-      this.clearMeasuredContentWidthForPatch(this.settings, patch);
+      this.preserveContentWidthForPatch(this.settings, patch, currentLayout);
       Object.assign(this.settings, patch);
     }
     this.applySettings();
     this.syncAllViews();
   }
 
-  private clearMeasuredContentWidthForPatch(
-    target: { contentWidthPx?: number },
+  private preserveContentWidthForPatch(
+    target: { contentWidth?: number; contentWidthPx?: number },
     patch: Partial<LayoutPresetValues>,
+    currentLayout: LayoutPresetValues,
   ): void {
-    if (
-      patch.contentWidth !== undefined
-      || patch.fontFamily !== undefined
-      || patch.fontSize !== undefined
-      || patch.letterSpacing !== undefined
-    ) {
-      delete target.contentWidthPx;
+    if (patch.contentWidth !== undefined) {
+      target.contentWidthPx = patch.contentWidth * (patch.fontSize ?? currentLayout.fontSize);
+    } else if (patch.fontSize !== undefined && target.contentWidth !== undefined && target.contentWidthPx === undefined) {
+      target.contentWidthPx = currentLayout.contentWidth * currentLayout.fontSize;
     }
   }
 
@@ -1850,7 +1863,9 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       if (overrides.letterSpacing !== undefined) target.style.setProperty("--cw-letter-spacing", `${layout.letterSpacing}px`);
       if (overrides.paragraphSpacing !== undefined) target.style.setProperty("--cw-paragraph-spacing", `${layout.paragraphSpacing}em`);
       if (overrides.firstLineIndent !== undefined) target.style.setProperty("--cw-first-line-indent", `${layout.firstLineIndent}em`);
-      if (overrides.contentWidth !== undefined) target.style.setProperty("--cw-content-width", `${layout.contentWidth}em`);
+      if (overrides.contentWidth !== undefined) {
+        target.style.setProperty("--cw-content-width", `${overrides.contentWidthPx ?? layout.contentWidth * layout.fontSize}px`);
+      }
       if (overrides.leftMargin !== undefined) target.style.setProperty("--cw-left-margin", `${layout.leftMargin}em`);
       if (overrides.rightMargin !== undefined) target.style.setProperty("--cw-right-margin", `${layout.rightMargin}em`);
       if (overrides.customPaperImage !== undefined) {
@@ -1878,7 +1893,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     target.style.setProperty("--cw-first-line-indent", `${layout.firstLineIndent}em`);
     target.style.setProperty(
       "--cw-content-width",
-      layout.contentWidthPx === undefined ? `${layout.contentWidth}em` : `${layout.contentWidthPx}px`,
+      `${layout.contentWidthPx ?? layout.contentWidth * layout.fontSize}px`,
     );
     target.style.setProperty("--cw-left-margin", `${layout.leftMargin}em`);
     target.style.setProperty("--cw-right-margin", `${layout.rightMargin}em`);
@@ -2196,6 +2211,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       }
       if (enabled && followObsidian) {
         for (const key of Object.keys(overrides) as Array<keyof LayoutPresetValues>) {
+          if (key === "contentWidthPx") continue;
           container.classList.add(`cw-follow-override-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`);
         }
       }
@@ -2436,6 +2452,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       ...this.settings.readerSettings,
       ...patch,
     });
+    this.syncNeededUserFonts();
     this.refreshReaderViews();
   }
 
@@ -2716,6 +2733,10 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
     const layout = this.getLayoutSettingsForFile(view.file);
     await this.ensureLayoutFontsLoaded(layout);
     const layoutViewportWidthPx = this.getMobileImageLayoutViewportWidth(view);
+    const customPaperFile = this.app.vault.getAbstractFileByPath(layout.customPaperImage);
+    const customPaperImage = layout.paperTheme === "custom" && customPaperFile instanceof TFile
+      ? this.app.vault.getResourcePath(customPaperFile)
+      : undefined;
     const plan = await createLongImagePlan(prepared.blocks, {
       width: normalizeImageExportWidth(width),
       layoutViewportWidthPx,
@@ -2726,6 +2747,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       paragraphSpacingEm: layout.paragraphSpacing,
       firstLineIndentEm: layout.firstLineIndent,
       paperTheme: layout.paperTheme,
+      customPaperImage,
       centerHeadings: this.settings.centerHeadings,
       centerHeadingLevels: this.settings.centerHeadingLevels,
       deviceBudget: getImageExportDeviceBudget(Platform.isMobileApp),
@@ -2810,6 +2832,10 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
       } else if (request.format === "png") {
         if (!prepared.blocks) throw new Error("PNG export blocks unavailable");
         const layoutViewportWidthPx = this.getMobileImageLayoutViewportWidth(view);
+        const customPaperFile = this.app.vault.getAbstractFileByPath(layout.customPaperImage);
+        const customPaperImage = layout.paperTheme === "custom" && customPaperFile instanceof TFile
+          ? this.app.vault.getResourcePath(customPaperFile)
+          : undefined;
         const imageOptions = {
           width: normalizeImageExportWidth(request.imageExportWidth ?? this.settings.imageExportWidth),
           layoutViewportWidthPx,
@@ -2820,6 +2846,7 @@ export default class ChineseWritingLayoutPlugin extends Plugin {
           paragraphSpacingEm: layout.paragraphSpacing,
           firstLineIndentEm: layout.firstLineIndent,
           paperTheme: layout.paperTheme,
+          customPaperImage,
           centerHeadings: this.settings.centerHeadings,
           centerHeadingLevels: this.settings.centerHeadingLevels,
           deviceBudget: getImageExportDeviceBudget(Platform.isMobileApp),

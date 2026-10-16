@@ -52,7 +52,64 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+describe("layout width while adjusting typography", () => {
+  it.each(["custom", "obsidian"])("keeps the %s layout width until the width slider is changed", (layoutPreset) => {
+    const plugin = new Plugin() as any;
+    const values = { ...plugin.settings, fontSize: 18, contentWidth: 42 };
+    delete values.contentWidthPx;
+    const layout = { layoutPreset, values, obsidianOverrides: { contentWidth: 42 } as any };
+    plugin.getWritingMarkdownView = () => ({ file: { path: "width.md" } });
+    plugin.ensureDocumentLayoutForCurrentFile = () => layout;
+    plugin.getCurrentLayoutSettings = () => layoutPreset === "obsidian" ? { ...values, ...layout.obsidianOverrides } : { ...values };
+    plugin.syncAllViews = vi.fn();
+    const target = layoutPreset === "obsidian" ? layout.obsidianOverrides : values;
+
+    plugin.previewLayoutSettings({ fontSize: 28 });
+    expect(target.contentWidthPx).toBe(756);
+    plugin.previewLayoutSettings({ fontSize: 16, letterSpacing: 1 });
+    expect(target.contentWidthPx).toBe(756);
+    plugin.previewLayoutSettings({ contentWidth: 50 });
+    expect(target.contentWidthPx).toBe(800);
+  });
+
+  it("resolves the same pixel width independently of editor and reading font inheritance", () => {
+    const plugin = new Plugin() as any;
+    const properties = new Map<string, string>();
+    const target = { style: { removeProperty: (name: string) => properties.delete(name), setProperty: (name: string, value: string) => properties.set(name, value) } };
+    plugin.applyHeadingSizeVariables = vi.fn();
+    plugin.app = { vault: { getAbstractFileByPath: () => null } };
+    plugin.applyLayoutVariables(target, { ...plugin.settings, contentWidth: 42, fontSize: 18 });
+    expect(properties.get("--cw-content-width")).toBe("756px");
+  });
+});
+
 describe("startup refresh work", () => {
+  it("loads a selected imported font when only a reader view is open", () => {
+    const plugin = new Plugin() as any;
+    const font = { id: "cw-user-reader", name: "Reader", fileName: "reader.ttf", originalFileName: "reader.ttf", format: "ttf" };
+    plugin.settings.userFonts = [font];
+    plugin.settings.readerSettings = { ...plugin.settings.readerSettings, font: { source: "user", id: font.id } };
+    plugin.app = { workspace: { getLeavesOfType: (type: string) => type === "chinese-writing-reader" ? [{}] : [] } };
+    plugin.ensureUserFontLoaded = vi.fn();
+    plugin.syncNeededUserFonts();
+    expect(plugin.ensureUserFontLoaded).toHaveBeenCalledWith(font.id);
+  });
+
+  it("keeps a font selectable before loading but flags it after its file is missing", async () => {
+    const plugin = new Plugin() as any;
+    const font = { id: "cw-user-missing", name: "Missing", fileName: "missing.ttf", originalFileName: "missing.ttf", format: "ttf" };
+    plugin.settings.userFonts = [font];
+    plugin.app = { vault: { adapter: { exists: async () => false } } };
+    plugin.ensureFontMigration = async () => {};
+    vi.stubGlobal("document", { fonts: { add() {} } });
+    vi.stubGlobal("FontFace", class {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(plugin.getAvailableUserFontIds().has(font.id)).toBe(true);
+    await plugin.ensureUserFontLoaded(font.id);
+    expect(plugin.getAvailableUserFontIds().has(font.id)).toBe(false);
+    warn.mockRestore();
+  });
+
   it("ignores metadata indexing of unopened notes", async () => {
     const { plugin, events } = await setup();
     for (let index = 0; index < 1000; index++) events.get("metadata")!({ path: `other-${index}.md` });
