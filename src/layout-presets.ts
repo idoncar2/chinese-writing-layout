@@ -197,6 +197,8 @@ export function normalizeLayoutPresetOverrides(
   }
   if (typeof values.contentWidth === "number") {
     normalized.contentWidth = normalizeNumber(values.contentWidth, DEFAULT_SETTINGS.contentWidth, 28, 120, 1);
+    const contentWidthPx = normalizeContentWidthPx(values.contentWidthPx);
+    if (contentWidthPx !== undefined) normalized.contentWidthPx = contentWidthPx;
   }
   if (typeof values.leftMargin === "number") {
     normalized.leftMargin = normalizeNumber(values.leftMargin, DEFAULT_SETTINGS.leftMargin, 0, 12, 0.5);

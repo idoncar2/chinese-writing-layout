@@ -5,6 +5,7 @@ import {
   getUserFontDirectory,
   getUserFontFilePath,
   getUserFontFormat,
+  requiredUserFontIds,
 } from "../src/user-fonts";
 
 describe("user font files", () => {
@@ -31,5 +32,34 @@ describe("user font files", () => {
       .toBe(".obsidian/chinese-writing-layout/fonts");
     expect(getUserFontFilePath(".obsidian/chinese-writing-layout/fonts", "cw-user-test.ttf"))
       .toBe(".obsidian/chinese-writing-layout/fonts/cw-user-test.ttf");
+  });
+});
+
+describe("lazy user font requirements", () => {
+  const fonts = [
+    { id: "cw-user-body", name: "Body", fileName: "body.otf", originalFileName: "body.otf", format: "otf" },
+    { id: "cw-user-title", name: "Title", fileName: "title.otf", originalFileName: "title.otf", format: "otf" },
+    { id: "cw-user-unused", name: "Unused", fileName: "unused.otf", originalFileName: "unused.otf", format: "otf" },
+  ] as const;
+
+  it("ignores fonts only registered but not referenced by an open layout", () => {
+    const layout = {
+      fontFamily: '"cw-user-body", serif',
+      headingFontFamily: '"cw-user-title", sans-serif',
+      quoteFontFamily: 'inherit',
+      boldFontFamily: 'inherit',
+      italicFontFamily: 'inherit',
+    } as Parameters<typeof requiredUserFontIds>[0];
+    expect(requiredUserFontIds(layout, [...fonts])).toEqual(["cw-user-body", "cw-user-title"]);
+  });
+
+  it("only uses explicit font overrides when following Obsidian", () => {
+    const layout = {
+      fontFamily: '"cw-user-body", serif',
+      headingFontFamily: '"cw-user-title", sans-serif',
+    } as Parameters<typeof requiredUserFontIds>[0];
+    expect(requiredUserFontIds(layout, [...fonts], true, {})).toEqual([]);
+    expect(requiredUserFontIds(layout, [...fonts], true, { fontFamily: '"cw-user-title", serif' }))
+      .toEqual(["cw-user-title"]);
   });
 });

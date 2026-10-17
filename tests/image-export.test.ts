@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getImageExportMetrics,
   getImageExportScale,
   getSafeLongImageHeight,
   planLongImages,
+  renderLongImageSegment,
   type LongImagePlanOptions,
 } from "../src/image-export";
 import { normalizeImageExportWidth } from "../src/types";
@@ -174,5 +175,144 @@ describe("long image planning", () => {
     );
     expect(plan.segments.length).toBeGreaterThan(10);
     expect(plan.warnings.some((warning) => warning.message.includes("预计生成"))).toBe(true);
+  });
+});
+
+describe("long image rendering", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("draws the selected custom paper image under the same translucent paper overlay as the UI", async () => {
+    const operations: Array<{ kind: string; value?: unknown }> = [];
+    const fillStyles: string[] = [];
+    let currentFillStyle = "";
+    const image = {
+      naturalWidth: 800,
+      naturalHeight: 400,
+      onload: undefined as (() => void) | undefined,
+      onerror: undefined as (() => void) | undefined,
+      set src(value: string) {
+        operations.push({ kind: "load-image", value });
+        this.onload?.();
+      },
+    };
+    const context = {
+      get fillStyle() {
+        return currentFillStyle;
+      },
+      set fillStyle(value: string) {
+        currentFillStyle = value;
+        fillStyles.push(value);
+      },
+      textBaseline: "",
+      textAlign: "",
+      font: "",
+      fillRect: (...args: unknown[]) => operations.push({ kind: "fill-rect", value: args }),
+      drawImage: (...args: unknown[]) => operations.push({ kind: "draw-image", value: args }),
+      fillText: (...args: unknown[]) => operations.push({ kind: "fill-text", value: args }),
+    };
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => context,
+      toBlob: (callback: BlobCallback) => callback(new Blob(["png"], { type: "image/png" })),
+    };
+    vi.stubGlobal("Image", function FakeImage() { return image; });
+    vi.stubGlobal("document", {
+      createElement: (tagName: string) => tagName === "canvas" ? canvas : image,
+    });
+
+    await renderLongImageSegment({
+      index: 1,
+      width: 1000,
+      height: 700,
+      startLine: 1,
+      endLine: 1,
+      startLabel: "开头",
+      endLabel: "结尾",
+      firstSentence: "正文。",
+      splitInsideParagraph: false,
+      lines: [{
+        lineNumber: 1,
+        blockIndex: 0,
+        kind: "paragraph",
+        text: "正文。",
+        x: 100,
+        y: 120,
+        font: "36px serif",
+        align: "left",
+      }],
+    }, {
+      ...options(),
+      width: 1000,
+      paperTheme: "custom",
+      customPaperImage: "app://paper.png",
+    } as never);
+
+    expect(operations).toContainEqual({ kind: "load-image", value: "app://paper.png" });
+    expect(operations.some(({ kind }) => kind === "draw-image")).toBe(true);
+    expect(fillStyles).toEqual(["#f8f5ee", "rgba(248, 245, 238, 0.78)", "#342f28"]);
+    expect(operations).toContainEqual({ kind: "fill-rect", value: [0, 0, 1000, 700] });
+  });
+
+  it("falls back to the flat custom paper color when the selected image is missing", async () => {
+    const operations: string[] = [];
+    const fillStyles: string[] = [];
+    let currentFillStyle = "";
+    const image = {
+      naturalWidth: 0,
+      naturalHeight: 0,
+      onload: undefined as (() => void) | undefined,
+      onerror: undefined as (() => void) | undefined,
+      set src(_value: string) {
+        operations.push("load-image");
+        throw new Error("paper image missing");
+      },
+    };
+    const context = {
+      get fillStyle() {
+        return currentFillStyle;
+      },
+      set fillStyle(value: string) {
+        currentFillStyle = value;
+        fillStyles.push(value);
+      },
+      textBaseline: "",
+      textAlign: "",
+      font: "",
+      fillRect: () => undefined,
+      drawImage: () => operations.push("draw-image"),
+      fillText: () => undefined,
+    };
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => context,
+      toBlob: (callback: BlobCallback) => callback(new Blob(["png"], { type: "image/png" })),
+    };
+    vi.stubGlobal("Image", function FakeImage() { return image; });
+    vi.stubGlobal("document", { createElement: () => canvas });
+
+    await expect(renderLongImageSegment({
+      index: 1,
+      width: 1000,
+      height: 700,
+      startLine: 1,
+      endLine: 1,
+      startLabel: "开头",
+      endLabel: "结尾",
+      firstSentence: "正文。",
+      splitInsideParagraph: false,
+      lines: [],
+    }, {
+      ...options(),
+      width: 1000,
+      paperTheme: "custom",
+      customPaperImage: "app://missing-paper.png",
+    } as never)).resolves.toBeInstanceOf(ArrayBuffer);
+
+    expect(operations).toEqual(["load-image"]);
+    expect(fillStyles).toEqual(["#f8f5ee", "#342f28"]);
   });
 });

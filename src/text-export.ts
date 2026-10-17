@@ -81,7 +81,7 @@ export function prepareMarkdownExportText(
   scope: ExportScope,
   includeFileTitles: boolean,
 ): string {
-  if (scope === "current" && sources.length === 1) {
+  if (scope === "current" && sources.length === 1 && !includeFileTitles) {
     return sources[0]?.markdown ?? "";
   }
   return combineMarkdownSources(sources, includeFileTitles);
@@ -96,7 +96,7 @@ export function prepareExportContent(
       text: prepareMarkdownExportText(
         sources,
         options.scope,
-        options.scope === "folder" && options.includeFileTitles,
+        options.includeFileTitles,
       ),
       contentMode: "markdown",
       sourceCount: sources.length,
@@ -105,7 +105,7 @@ export function prepareExportContent(
 
   const blocks = combineExportSources(
     sources,
-    options.scope === "folder" && options.includeFileTitles,
+    options.includeFileTitles,
     options.stripMarkdown,
   );
   return {

@@ -34,6 +34,7 @@ export interface ImageExportOptions {
   paragraphSpacingEm: number;
   firstLineIndentEm: number;
   paperTheme: PaperTheme;
+  customPaperImage?: string;
   centerHeadings?: boolean;
   centerHeadingLevels?: readonly number[];
   deviceBudget?: LongImageDeviceBudget;
@@ -142,6 +143,7 @@ const BASE_IMAGE_FONT_MULTIPLIER = 2;
 const MOBILE_LAYOUT_MARGIN_X = 24;
 const MOBILE_LAYOUT_MARGIN_Y = 32;
 const MANY_SEGMENTS_THRESHOLD = 10;
+const CUSTOM_PAPER_OVERLAY = "rgba(248, 245, 238, 0.78)";
 
 const PAPER_PALETTES: Record<PaperTheme, { background: string; text: string }> = {
   plain: { background: "#ffffff", text: "#222222" },
@@ -598,6 +600,51 @@ function getPaperPalette(theme: PaperTheme): { background: string; text: string 
   };
 }
 
+function loadCustomPaperImage(source: string): Promise<HTMLImageElement | undefined> {
+  return new Promise((resolve) => {
+    if (!source || typeof Image === "undefined") {
+      resolve(undefined);
+      return;
+    }
+    let image: HTMLImageElement;
+    try {
+      image = new Image();
+    } catch {
+      resolve(undefined);
+      return;
+    }
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(undefined);
+    try {
+      image.src = source;
+    } catch {
+      resolve(undefined);
+    }
+  });
+}
+
+function drawCoverImage(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  width: number,
+  height: number,
+): boolean {
+  const imageWidth = image.naturalWidth || image.width;
+  const imageHeight = image.naturalHeight || image.height;
+  if (!(imageWidth > 0) || !(imageHeight > 0)) return false;
+  const scale = Math.max(width / imageWidth, height / imageHeight);
+  const drawWidth = imageWidth * scale;
+  const drawHeight = imageHeight * scale;
+  context.drawImage(
+    image,
+    (width - drawWidth) / 2,
+    (height - drawHeight) / 2,
+    drawWidth,
+    drawHeight,
+  );
+  return true;
+}
+
 function canvasToArrayBuffer(canvas: HTMLCanvasElement): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
@@ -643,6 +690,13 @@ export async function renderLongImageSegment(
   const palette = getPaperPalette(options.paperTheme);
   context.fillStyle = palette.background;
   context.fillRect(0, 0, segment.width, segment.height);
+  if (options.paperTheme === "custom" && options.customPaperImage) {
+    const image = await loadCustomPaperImage(options.customPaperImage);
+    if (image && drawCoverImage(context, image, segment.width, segment.height)) {
+      context.fillStyle = CUSTOM_PAPER_OVERLAY;
+      context.fillRect(0, 0, segment.width, segment.height);
+    }
+  }
   context.fillStyle = palette.text;
   context.textBaseline = "alphabetic";
   for (const line of segment.lines) {

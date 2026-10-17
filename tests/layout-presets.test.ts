@@ -223,6 +223,8 @@ describe("layout presets", () => {
 
     expect(values.contentWidth).toBe(41);
     expect(values.contentWidthPx).toBe(704.5);
+    expect(normalizeLayoutPresetOverrides({ contentWidth: 41, contentWidthPx: 704.5 }))
+      .toEqual({ contentWidth: 41, contentWidthPx: 704.5 });
   });
 
   it("turns edited saved-template values into an explicit custom layout", () => {
