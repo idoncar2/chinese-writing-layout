@@ -2,6 +2,11 @@ name: Release Obsidian plugin
 
 on:
   push:
+    # A version bump merged to main publishes a tested release. Tag pushes still work.
+    branches:
+      - main
+    paths:
+      - manifest.json
     tags:
       - "[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
